@@ -70,9 +70,9 @@ preserve the asset hierarchy: `/static/css/app.css`,
 
 - Test and implement `webstack new <name>` in fresh temporary directories.
 - Generate an independently compiling application with Git framework dependency,
-  nested assets, docs, configuration example, and optional Git initialization.
-- Use Clap for typed commands, generated help, and argument validation. Resolve
-  and commit application lockfiles by default, with an offline opt-out.
+  nested assets, docs, and a configuration example.
+- Use Clap for typed commands, generated help, and argument validation. Perform
+  deterministic filesystem generation without launching external tools.
 - Establish structured tracing, typed observability configuration, CLI verbosity,
   and generated-application startup logging before runtime features are added.
 - **Gate:** generated project compiles without relying on monorepo path state.
@@ -85,8 +85,8 @@ preserve the asset hierarchy: `/static/css/app.css`,
 
 ### 3. Assets, Templates, and Development Command
 
-- Test and implement Askama pages, embedded nested assets, ETags, caching,
-  Tailwind/daisyUI tooling, and `webstack dev` child supervision.
+- Test and implement Askama pages, embedded nested assets, ETags, caching, and
+  generated Tailwind/daisyUI development tasks.
 - **Gate:** isolated release binary serves CSS, htmx, images, and templates.
 
 ### 4. TLS
@@ -130,9 +130,7 @@ establishes stable application conventions.
 ## Initial CLI Contract
 
 - `webstack new <name>`
-- `webstack dev`
 - `webstack assets setup`
-- `webstack assets build`
 - `webstack generate migration <name>`
 - `webstack doctor`
 
@@ -142,6 +140,10 @@ pretend to perform work.
 Generated applications own their `Cargo.toml` and `Cargo.lock`. Developers add
 dependencies with normal Cargo workflows; framework tooling does not overwrite
 application dependency declarations.
+
+Production framework code never launches external processes. Developers invoke
+Cargo, Git, Tailwind, Bacon, and `just` explicitly; tests may launch executables
+for black-box verification.
 
 ## Invariants
 

@@ -21,18 +21,18 @@ cd inventory-app
 cargo test
 ```
 
-Generation creates `./inventory-app`, resolves `Cargo.lock`, and initializes a
-Git repository on `main`. The target must not already exist.
-
-For offline or nested-repository workflows:
+Generation creates `./inventory-app` using deterministic filesystem operations.
+The target must not already exist. Webstack then prints the explicit commands to
+initialize version control and compile the application:
 
 ```sh
-webstack new inventory-app --no-lock --no-git
+cd inventory-app
+git init -b main
+cargo check
 ```
 
-If lockfile resolution fails, the generated source is preserved. Enter the new
-directory and retry with `cargo generate-lockfile`.
+The first Cargo build, check, or test creates `Cargo.lock`. Commit that file with
+the application for reproducible builds.
 
 HTTP serving is introduced in the next framework milestone; the current
 application verifies composition through the Webstack facade.
-

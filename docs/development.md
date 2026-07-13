@@ -54,6 +54,10 @@ Add `-v` for debug diagnostics or `-vv` for trace diagnostics. Without a
 verbosity flag, the CLI emits only warnings and errors on stderr while keeping
 normal command results on stdout.
 
-Use `--no-lock` to generate without network dependency resolution and `--no-git`
-when the target should not become a Git repository. Other advertised commands
-intentionally fail until their milestones are complete.
+Generation does not invoke Cargo or Git. Run the printed commands explicitly to
+initialize version control and compile the application. Other advertised
+commands intentionally fail until their milestones are complete.
+
+Production Webstack code does not launch external processes. Generated
+`justfile` recipes may describe Cargo, Tailwind, or Bacon commands that a
+developer invokes directly. Tests may launch executables for black-box checks.

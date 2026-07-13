@@ -21,9 +21,13 @@ fn help_lists_the_initial_command_surface() {
     assert_success(&output);
 
     let stdout = String::from_utf8(output.stdout).expect("help should be UTF-8");
-    for command in ["new", "dev", "assets", "generate", "doctor"] {
+    for command in ["new", "assets", "generate", "doctor"] {
         assert!(stdout.contains(command), "help should include {command:?}");
     }
+    assert!(
+        !stdout.contains("\n  dev "),
+        "help should not advertise dev"
+    );
 }
 
 #[test]
@@ -45,7 +49,7 @@ fn new_generates_an_application_owned_project() {
     let temp = TempDir::new().expect("temporary directory");
     let target = temp.path().join("inventory-app");
     let output = webstack()
-        .args(["new", "inventory-app", "--no-git", "--no-lock"])
+        .args(["new", "inventory-app"])
         .arg("--directory")
         .arg(&target)
         .output()
@@ -75,6 +79,9 @@ fn new_generates_an_application_owned_project() {
     assert!(main.contains("webstack::observability::init"));
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("git init -b main"));
+    assert!(stdout.contains("cargo check"));
 }
 
 #[test]
@@ -82,7 +89,7 @@ fn generator_diagnostics_require_verbose_mode() {
     let temp = TempDir::new().expect("temporary directory");
     let quiet_target = temp.path().join("quiet-app");
     let quiet = webstack()
-        .args(["new", "quiet-app", "--no-git", "--no-lock"])
+        .args(["new", "quiet-app"])
         .arg("--directory")
         .arg(&quiet_target)
         .output()
@@ -92,7 +99,7 @@ fn generator_diagnostics_require_verbose_mode() {
 
     let verbose_target = temp.path().join("verbose-app");
     let verbose = webstack()
-        .args(["-v", "new", "verbose-app", "--no-git", "--no-lock"])
+        .args(["-v", "new", "verbose-app"])
         .arg("--directory")
         .arg(&verbose_target)
         .output()
@@ -108,7 +115,7 @@ fn new_rejects_invalid_names_before_creating_the_target() {
     let temp = TempDir::new().expect("temporary directory");
     let target = temp.path().join("Bad_Name");
     let output = webstack()
-        .args(["new", "Bad_Name", "--no-git", "--no-lock"])
+        .args(["new", "Bad_Name"])
         .arg("--directory")
         .arg(&target)
         .output()
@@ -127,7 +134,7 @@ fn new_refuses_an_existing_target_without_modifying_it() {
     fs::write(target.join("keep.txt"), "unchanged").expect("sentinel");
 
     let output = webstack()
-        .args(["new", "inventory-app", "--no-git", "--no-lock"])
+        .args(["new", "inventory-app"])
         .arg("--directory")
         .arg(&target)
         .output()
@@ -142,25 +149,22 @@ fn new_refuses_an_existing_target_without_modifying_it() {
 }
 
 #[test]
-fn new_initializes_a_main_git_branch_by_default() {
+fn new_leaves_version_control_and_dependency_resolution_to_the_developer() {
     let temp = TempDir::new().expect("temporary directory");
     let target = temp.path().join("inventory-app");
     let output = webstack()
-        .args(["new", "inventory-app", "--no-lock"])
+        .args(["new", "inventory-app"])
         .arg("--directory")
         .arg(&target)
         .output()
         .expect("CLI should run");
     assert_success(&output);
 
-    assert!(target.join(".git").is_dir());
-    let branch = Command::new("git")
-        .args(["symbolic-ref", "--short", "HEAD"])
-        .current_dir(&target)
-        .output()
-        .expect("git should run");
-    assert_success(&branch);
-    assert_eq!(String::from_utf8_lossy(&branch.stdout).trim(), "main");
+    assert!(!target.join(".git").exists());
+    assert!(!target.join("Cargo.lock").exists());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("git init -b main"));
+    assert!(stdout.contains("cargo check"));
 }
 
 #[test]
@@ -172,7 +176,7 @@ fn generated_project_uses_only_the_webstack_facade() {
         .and_then(Path::parent)
         .expect("workspace root");
     let output = webstack()
-        .args(["new", "inventory-app", "--no-git"])
+        .args(["new", "inventory-app"])
         .arg("--directory")
         .arg(&target)
         .arg("--framework-path")
@@ -194,4 +198,38 @@ fn generated_project_uses_only_the_webstack_facade() {
     let manifest = fs::read_to_string(target.join("Cargo.toml")).expect("manifest");
     assert!(manifest.contains("webstack = { path ="));
     assert!(!manifest.contains("webstack-core"));
+}
+
+#[test]
+fn production_framework_sources_do_not_launch_external_processes() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let mut pending = vec![workspace.join("crates")];
+
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory).expect("framework source directory") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "tests") {
+                    continue;
+                }
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let source = fs::read_to_string(&path).expect("Rust source");
+                for forbidden in [
+                    "std::process::Command",
+                    "process::Command",
+                    "tokio::process",
+                ] {
+                    assert!(
+                        !source.contains(forbidden),
+                        "{} contains forbidden process launching API {forbidden:?}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
 }

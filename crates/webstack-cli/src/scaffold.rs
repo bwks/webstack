@@ -56,7 +56,7 @@ profile = "default"
     },
     ScaffoldFile {
         path: "README.md",
-        contents: "# {{app_name}}\n\nA Webstack application. See [`docs/README.md`](docs/README.md).\n",
+        contents: "# {{app_name}}\n\nA Webstack application. See [`docs/README.md`](docs/README.md).\n\n## First Run\n\n```sh\ngit init -b main\ncargo check\n```\n\nCommit the `Cargo.lock` created by the first Cargo command.\n",
     },
     ScaffoldFile {
         path: "config.example.toml",

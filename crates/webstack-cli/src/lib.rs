@@ -6,7 +6,7 @@ mod scaffold;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use generator::{GenerateOptions, Generator, SystemRunner};
+use generator::GenerateOptions;
 use thiserror::Error;
 
 pub use generator::GenerateError;
@@ -54,9 +54,7 @@ impl Cli {
 enum Command {
     /// Generate an independent Webstack application.
     New(NewArgs),
-    /// Run the application and asset watcher.
-    Dev,
-    /// Set up or build frontend assets.
+    /// Manage frontend asset tooling.
     Assets {
         #[command(subcommand)]
         command: AssetCommand,
@@ -79,14 +77,6 @@ struct NewArgs {
     #[arg(long, value_name = "PATH")]
     directory: Option<PathBuf>,
 
-    /// Do not initialize a Git repository.
-    #[arg(long)]
-    no_git: bool,
-
-    /// Do not resolve dependencies or create Cargo.lock.
-    #[arg(long)]
-    no_lock: bool,
-
     /// Use a local Webstack checkout instead of the Git dependency.
     #[arg(long, value_name = "PATH", hide = true)]
     framework_path: Option<PathBuf>,
@@ -96,8 +86,6 @@ struct NewArgs {
 enum AssetCommand {
     /// Download the standalone Tailwind CLI.
     Setup,
-    /// Build application CSS.
-    Build,
 }
 
 #[derive(Debug, Subcommand)]
@@ -123,18 +111,18 @@ fn execute(command: Command) -> Result<(), CliError> {
             let options = GenerateOptions {
                 name: args.name,
                 target,
-                initialize_git: !args.no_git,
-                generate_lockfile: !args.no_lock,
                 framework_path: args.framework_path,
             };
-            let generated = Generator::new(SystemRunner).generate(&options)?;
-            println!("Created {}", generated.display());
+            let generated = generator::generate(&options)?;
+            println!(
+                "Created {}\n\nNext steps:\n  cd {}\n  git init -b main\n  cargo check",
+                generated.display(),
+                generated.display()
+            );
             Ok(())
         }
-        Command::Dev => not_implemented("dev"),
         Command::Assets { command } => not_implemented(match command {
             AssetCommand::Setup => "assets setup",
-            AssetCommand::Build => "assets build",
         }),
         Command::Generate { command } => not_implemented(match command {
             GenerateCommand::Migration { name: _ } => "generate migration",

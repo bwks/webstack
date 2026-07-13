@@ -12,9 +12,10 @@ declarations. An existing generation target is always rejected, even when empty.
 ## Dependencies
 
 During Git-first development, the generated manifest references the
-`framework-baseline` branch. Cargo resolves that branch to a specific commit and
-records the result in `Cargo.lock`. Commit the lockfile with the application so
-local, CI, and production builds use the same dependency graph.
+`framework-baseline` branch. The first developer-run Cargo command resolves that
+branch to a specific commit and creates `Cargo.lock`. Commit the lockfile with
+the application so local, CI, and production builds use the same dependency
+graph.
 
 Add application-specific crates normally:
 
