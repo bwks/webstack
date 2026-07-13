@@ -60,17 +60,21 @@ preserve the asset hierarchy: `/static/css/app.css`,
 
 ## Delivery Milestones
 
-### 0. Workspace Baseline
+### 0. Workspace Baseline (complete)
 
 - Stable toolchain, Cargo workspace, private crate boundaries, CLI shell, demo,
   test conventions, initial documentation, and quality commands.
 - **Gate:** workspace format, Clippy, and tests pass.
 
-### 1. Application Generation
+### 1. Application Generation (in review)
 
 - Test and implement `webstack new <name>` in fresh temporary directories.
 - Generate an independently compiling application with Git framework dependency,
   nested assets, docs, configuration example, and optional Git initialization.
+- Use Clap for typed commands, generated help, and argument validation. Resolve
+  and commit application lockfiles by default, with an offline opt-out.
+- Establish structured tracing, typed observability configuration, CLI verbosity,
+  and generated-application startup logging before runtime features are added.
 - **Gate:** generated project compiles without relying on monorepo path state.
 
 ### 2. Configuration and HTTP Runtime
@@ -135,6 +139,10 @@ establishes stable application conventions.
 Until its milestone is implemented, a command must fail clearly rather than
 pretend to perform work.
 
+Generated applications own their `Cargo.toml` and `Cargo.lock`. Developers add
+dependencies with normal Cargo workflows; framework tooling does not overwrite
+application dependency declarations.
+
 ## Invariants
 
 - Generated applications are independent projects and single release binaries.
@@ -146,6 +154,10 @@ pretend to perform work.
   `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` override config values.
 - Restore is a startup-only CLI operation and requires a fresh data directory.
 - Node.js, `cargo-watch`, Figment, and the `config` crate are out of scope.
+- Library APIs return concrete errors derived with `thiserror`; `anyhow` is
+  reserved for binary entrypoints and process-level context.
+- Generated application startup uses `anyhow`, while HTTP handlers use the
+  facade's typed `AppError` once the response layer is introduced.
 
 ## Quality Gate
 
@@ -158,4 +170,3 @@ cargo test --workspace --all-features
 Applicable milestones also run generated-project, HTTP, TLS, documentation-link,
 and isolated-release tests. Database tests receive unique temporary directories
 and drop all handles before cleanup.
-

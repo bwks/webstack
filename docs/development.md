@@ -18,6 +18,15 @@ For observable behavior:
 Bug fixes begin with a reproducing test. Avoid tests coupled to private structure
 when a public behavior can express the contract.
 
+## Errors
+
+- Library crates define typed errors with `thiserror`.
+- Public library functions do not return `anyhow::Error` or `Box<dyn Error>`.
+- Binaries use `anyhow::Result` or an internal `anyhow` boundary for contextual
+  startup and orchestration failures.
+- Preserve source errors and add variants that describe the failed operation.
+- Request-handling errors use `AppError` after the HTTP layer is introduced.
+
 ## Commands
 
 ```sh
@@ -26,11 +35,25 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
 
-The CLI can currently display its planned command surface:
+The CLI uses Clap and can generate an independent application:
 
 ```sh
 cargo run -p webstack-cli -- --help
+cargo run -p webstack-cli -- new my-app
 ```
 
-Commands other than help intentionally fail until their milestones are complete.
+Because the CLI is the workspace's default member, the shorter forms also work
+from the repository root:
 
+```sh
+cargo run -- --help
+cargo run -- new my-app
+```
+
+Add `-v` for debug diagnostics or `-vv` for trace diagnostics. Without a
+verbosity flag, the CLI emits only warnings and errors on stderr while keeping
+normal command results on stdout.
+
+Use `--no-lock` to generate without network dependency resolution and `--no-git`
+when the target should not become a Git repository. Other advertised commands
+intentionally fail until their milestones are complete.

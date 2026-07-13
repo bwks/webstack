@@ -1,5 +1,7 @@
 #![doc = "Application lifecycle and composition primitives."]
 
+pub mod observability;
+
 #[derive(Debug, Default)]
 pub struct Application;
 

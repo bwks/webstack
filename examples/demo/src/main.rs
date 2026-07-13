@@ -1,6 +1,8 @@
 use webstack::prelude::*;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
+    webstack::observability::init(&ObservabilityConfig::default())?;
     let _app = Application::new();
-    println!("Webstack demo");
+    webstack::tracing::info!(application = "webstack-demo", "application composed");
+    Ok(())
 }

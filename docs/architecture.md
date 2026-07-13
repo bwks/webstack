@@ -33,3 +33,18 @@ thread-safe handle. Assets, templates, and migrations compile into release
 binaries. Live RocksDB files are never copied for backup or opened by a second
 process.
 
+## Error Boundaries
+
+Framework libraries expose concrete, operation-specific errors derived with
+`thiserror`. They retain underlying sources where useful and do not expose
+`anyhow::Error` or `Box<dyn Error>` in public APIs.
+
+Framework and generated binaries use `anyhow` to attach process-level context at
+startup and command boundaries. HTTP behavior will use Webstack's typed
+`AppError`, re-exported through the facade, so status codes and htmx responses
+remain explicit and testable.
+
+Framework libraries emit structured events and spans with `tracing`. Generated
+application binaries install the process-global subscriber through
+`webstack::observability`; libraries never install subscribers themselves. CLI
+subscriber ownership remains in the `webstack` binary.

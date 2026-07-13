@@ -19,7 +19,15 @@ be injectable where nondeterminism would make tests unreliable.
 
 ## Current Contract
 
-The first CLI integration test verifies that `webstack --help` succeeds and lists
-the initial top-level commands. Later CLI milestones will test generated output
-in new temporary directories and compile the resulting application.
+CLI integration tests verify Clap behavior, generate applications in temporary
+directories, refuse unsafe targets, initialize Git, and compile a generated
+application through the facade. Process execution is injected where Cargo or Git
+failure behavior must be deterministic.
 
+Typed-error tests verify both stable display messages and retained source chains.
+HTTP milestones will test every `AppError` variant's status, safe response body,
+and htmx rendering behavior.
+
+Observability tests use scoped subscribers with captured writers so parallel
+tests do not compete for global state. A dedicated integration test verifies
+that a second global initialization returns a typed error.

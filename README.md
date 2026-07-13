@@ -9,8 +9,14 @@ for framework documentation.
 
 ## Current Status
 
-The framework workspace and CLI command surface exist. Runtime features and
-application generation have not been implemented yet.
+The framework workspace and `webstack new` application generator exist. Runtime
+HTTP behavior has not been implemented yet.
+
+Generate an application from a local build with:
+
+```sh
+cargo run -p webstack-cli -- new my-app
+```
 
 ## Checks
 
@@ -19,4 +25,3 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
-
