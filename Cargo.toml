@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "crates/webstack",
+    "crates/webstack-auth",
+    "crates/webstack-backup",
+    "crates/webstack-cli",
+    "crates/webstack-core",
+    "crates/webstack-db",
+    "crates/webstack-test",
+    "crates/webstack-web",
+    "examples/demo",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.97"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+

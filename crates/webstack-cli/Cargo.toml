@@ -1,0 +1,15 @@
+[package]
+name = "webstack-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "webstack"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
