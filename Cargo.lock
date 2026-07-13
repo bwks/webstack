@@ -523,7 +523,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
- "tracing-subscriber",
+ "webstack-core",
 ]
 
 [[package]]

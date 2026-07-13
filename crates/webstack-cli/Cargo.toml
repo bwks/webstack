@@ -15,7 +15,7 @@ anyhow.workspace = true
 clap.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+webstack-core = { path = "../webstack-core" }
 
 [dev-dependencies]
 tempfile.workspace = true
