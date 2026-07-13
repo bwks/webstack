@@ -1,8 +1,12 @@
+use webstack::axum::routing::get;
 use webstack::prelude::*;
 
-fn main() -> anyhow::Result<()> {
-    webstack::observability::init(&ObservabilityConfig::default())?;
-    let _app = Application::new();
-    webstack::tracing::info!(application = "webstack-demo", "application composed");
+async fn index() -> &'static str {
+    "Webstack demo"
+}
+
+#[webstack::tokio::main(crate = "webstack::tokio")]
+async fn main() -> anyhow::Result<()> {
+    Application::builder().route("/", get(index))?.run().await?;
     Ok(())
 }

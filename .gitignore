@@ -2,5 +2,5 @@
 **/assets/css/app.css
 /tools/tailwindcss
 /data/
-/config.toml
-
+/webstack.toml
+/graphify-out/

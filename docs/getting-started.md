@@ -34,5 +34,7 @@ cargo check
 The first Cargo build, check, or test creates `Cargo.lock`. Commit that file with
 the application for reproducible builds.
 
-HTTP serving is introduced in the next framework milestone; the current
-application verifies composition through the Webstack facade.
+The generated application includes safe local configuration and serves plain
+HTTP on `127.0.0.1:8080`. Its application-owned `/` route and framework-owned
+`/healthz` endpoint are composed through the Webstack facade. Stop the server
+with SIGINT or SIGTERM for graceful shutdown.

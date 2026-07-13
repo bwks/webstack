@@ -8,14 +8,106 @@ while `webstack new` will generate independently owned application repositories.
 
 ## Boundaries
 
-Generated applications consume the `webstack` facade. The facade currently
-re-exports the application lifecycle type from `webstack-core`. Infrastructure
-is separated into database, web, authentication, and backup crates so each can
-be tested without turning a generated application into a large workspace.
+Generated applications consume the `webstack` facade. Lifecycle-independent
+configuration and observability live in `webstack-core`; Axum composition,
+typed state, health, and graceful shutdown live in `webstack-web`. The facade
+re-exports their supported APIs so generated applications do not depend on
+internal crates.
+
+Application routes are registered through `Application::builder().route(...)`.
+The framework reserves `/healthz`; application handlers can extract
+`AppState` to read the loaded Webstack configuration. Application-owned
+configuration and state remain outside the framework configuration contract.
 
 The `webstack-cli` package produces the `webstack` executable. CLI scaffolds will
 be embedded into that executable so generation does not depend on the framework
 source checkout at runtime.
+
+## Target Application Architecture
+
+The diagram below shows the intended complete application architecture. Solid
+green components are implemented; dashed components are planned and must not be
+read as current functionality. Blue components sit outside the generated
+single-binary process.
+
+```mermaid
+flowchart TB
+    subgraph Legend["Status"]
+        ImplementedLegend["Implemented"]:::implemented
+        PlannedLegend["Planned target"]:::planned
+        ExternalLegend["External boundary"]:::external
+    end
+
+    Browser["Browser<br/>server-rendered HTML + htmx"]:::external
+    LetsEncrypt["Let's Encrypt<br/>ACME service"]:::external
+    R2["Cloudflare R2"]:::external
+    WebstackConfig["./webstack.toml<br/>framework configuration"]:::external
+    AppConfig["Application-owned<br/>configuration and state"]:::external
+    DataDir["Persistent data directory<br/>RocksDB + ACME cache"]:::external
+
+    subgraph Binary["Generated application binary — one process"]
+        Main["Application main<br/>composition root"]:::implemented
+        Facade["webstack facade<br/>ApplicationBuilder"]:::implemented
+        Config["Config loader<br/>Serde + Garde"]:::implemented
+        Observability["Tracing and<br/>structured logs"]:::implemented
+        Shutdown["Graceful shutdown<br/>SIGINT / SIGTERM"]:::implemented
+
+        PlainHttp["Plain HTTP listener"]:::implemented
+        Tls["In-process TLS + redirect<br/>rustls / ACME / self-signed"]:::planned
+        Router["Axum router"]:::implemented
+        Middleware["Request ID, security headers,<br/>compression, CSRF"]:::planned
+
+        subgraph Http["HTTP application layer"]
+            Health["/healthz"]:::implemented
+            AppRoutes["Application routes"]:::implemented
+            Auth["Login, sessions, RBAC<br/>argon2id + axum-login"]:::planned
+            Views["Askama full pages<br/>and htmx partials"]:::planned
+            Assets["Embedded CSS, JS,<br/>images and htmx"]:::planned
+        end
+
+        State["Shared AppState<br/>Webstack Config"]:::implemented
+        Database["Embedded SurrealDB<br/>RocksDB backend"]:::planned
+        Migrations["Embedded startup<br/>migrations"]:::planned
+        Sessions["SurrealDB session store"]:::planned
+        Scheduler["Backup and cleanup<br/>scheduler"]:::planned
+        Export["Logical export<br/>SURQL → gzip"]:::planned
+    end
+
+    WebstackConfig --> Config
+    AppConfig --> Main
+    Main --> Facade --> Config
+    Config --> Observability
+    Config --> State
+    Main --> PlainHttp
+    Main --> Tls
+    Browser -->|HTTP — disabled TLS mode| PlainHttp
+    Browser -->|HTTPS| Tls
+    PlainHttp -.->|redirect in TLS modes| Tls
+    Tls -->|ACME| LetsEncrypt
+    PlainHttp --> Router
+    Tls --> Router
+    Router --> Middleware
+    Router --> Health
+    Middleware --> AppRoutes
+    Middleware --> Auth
+    AppRoutes --> Views
+    Router --> Assets
+    AppRoutes --> State
+    Auth --> State
+    Auth --> Sessions --> Database
+    State -->|one shared handle| Database --> DataDir
+    Migrations --> Database
+    Tls --> DataDir
+    Scheduler --> Export --> R2
+    Database -->|logical export only| Export
+    Router -.->|events and spans| Observability
+    Shutdown --> PlainHttp
+    Shutdown --> Scheduler
+
+    classDef implemented fill:#dcfce7,stroke:#15803d,stroke-width:2px,color:#14532d
+    classDef planned fill:#f8fafc,stroke:#64748b,stroke-width:2px,stroke-dasharray:6 4,color:#334155
+    classDef external fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+```
 
 ## Dependency Rules
 

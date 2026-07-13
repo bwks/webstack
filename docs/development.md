@@ -58,6 +58,10 @@ Generation does not invoke Cargo or Git. Run the printed commands explicitly to
 initialize version control and compile the application. Other advertised
 commands intentionally fail until their milestones are complete.
 
+Generated applications start with `cargo run`. Webstack always loads
+`./webstack.toml`. The framework accepts only the three documented R2 value
+overrides; `RUST_LOG` is unsupported.
+
 Production Webstack code does not launch external processes. Generated
 `justfile` recipes may describe Cargo, Tailwind, or Bacon commands that a
 developer invokes directly. Tests may launch executables for black-box checks.

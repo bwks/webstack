@@ -40,13 +40,28 @@ details are logged, not exposed in browser responses.
 
 ## Observability
 
-Generated binaries initialize Webstack tracing before application composition.
-The current scaffold uses readable info-level output. Typed configuration will
-allow explicit JSON production output in the configuration/HTTP milestone.
+`Application::run()` loads configuration and initializes Webstack tracing before
+binding the HTTP listener. The generated local configuration uses readable
+info-level output; set `[observability].format = "json"` for structured output.
 
 Application code can emit supported tracing events through
 `webstack::tracing`. Do not record credentials, passwords, session identifiers,
 CSRF values, complete configuration values, or user-provided sensitive content.
+
+## Configuration and Routes
+
+Generated applications contain an ignored `webstack.toml` and a committed
+`webstack.example.toml`. Webstack always loads `./webstack.toml`; a missing file
+is an error. Only `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` override values.
+
+Webstack owns only this framework configuration. Applications may load and
+manage their own configuration independently.
+
+Applications own `/` and register routes fluently. Webstack owns `/healthz`,
+which currently reports process health without querying a database. TLS and
+backup settings are parsed now but must remain disabled until their runtime
+milestones are implemented.
 
 ## Layout
 

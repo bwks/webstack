@@ -6,10 +6,13 @@ Webstack uses `tracing` for structured events and spans. Libraries emit events;
 the application or CLI binary owns subscriber initialization. Logs are written
 to stderr so command results and HTTP response bodies remain separate.
 
-Generated applications initialize tracing through the supported facade:
+Generated applications let `Application::run()` initialize tracing from the
+typed configuration:
 
-```rust
-webstack::observability::init(&ObservabilityConfig::default())?;
+```toml
+[observability]
+filter = "info"
+format = "pretty"
 ```
 
 Application code can emit events without depending on an internal crate:
@@ -24,7 +27,7 @@ The current default is an `info` filter with compact, human-readable output and
 terminal-aware ANSI styling. JSON output is newline-delimited, disables ANSI,
 and includes event fields plus current span context.
 
-The configuration milestone will expose:
+Configuration exposes:
 
 ```toml
 [observability]

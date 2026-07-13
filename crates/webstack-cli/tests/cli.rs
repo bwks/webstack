@@ -59,6 +59,8 @@ fn new_generates_an_application_owned_project() {
     for relative in [
         "Cargo.toml",
         "src/main.rs",
+        "webstack.toml",
+        "webstack.example.toml",
         "assets/css/input.css",
         "assets/js/htmx.min.js",
         "assets/images/.gitkeep",
@@ -75,8 +77,16 @@ fn new_generates_an_application_owned_project() {
     assert!(manifest.contains("branch = \"framework-baseline\""));
     assert!(manifest.contains("anyhow = \"1\""));
     let main = fs::read_to_string(target.join("src/main.rs")).expect("main source");
-    assert!(main.contains("fn main() -> anyhow::Result<()>"));
-    assert!(main.contains("webstack::observability::init"));
+    assert!(main.contains("async fn main() -> anyhow::Result<()>"));
+    assert!(main.contains("Application::builder()"));
+    assert!(!main.contains("ApplicationSettings"));
+    assert!(main.contains(".route(\"/\", get(index))?"));
+    assert!(main.contains(".run()"));
+    assert!(!main.contains("webstack::observability::init"));
+    assert_eq!(
+        fs::read_to_string(target.join("webstack.toml")).expect("local config"),
+        fs::read_to_string(target.join("webstack.example.toml")).expect("example config")
+    );
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
     let stdout = String::from_utf8_lossy(&output.stdout);

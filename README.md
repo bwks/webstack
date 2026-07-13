@@ -9,8 +9,9 @@ for framework documentation.
 
 ## Current Status
 
-The framework workspace and `webstack new` application generator exist. Runtime
-HTTP behavior has not been implemented yet.
+The framework workspace, `webstack new` application generator, typed
+configuration, and initial plain-HTTP runtime exist. Generated applications own
+their root route while Webstack reserves `/healthz`.
 
 Generate an application from a local build with:
 

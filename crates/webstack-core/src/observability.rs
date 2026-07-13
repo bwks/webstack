@@ -2,11 +2,14 @@
 
 use std::io::{self, IsTerminal};
 
+use garde::Validate;
+use serde::Deserialize;
 use thiserror::Error;
 use tracing_subscriber::{EnvFilter, filter::ParseError, fmt};
 
 /// The serialization format used for tracing events.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum LogFormat {
     /// Human-readable output intended for local development.
     #[default]
@@ -16,10 +19,19 @@ pub enum LogFormat {
 }
 
 /// Validated inputs used to initialize application tracing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Validate, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
 pub struct ObservabilityConfig {
+    #[garde(custom(valid_filter))]
     filter: String,
+    #[garde(skip)]
     format: LogFormat,
+}
+
+fn valid_filter<Context>(value: &str, _context: &Context) -> garde::Result {
+    EnvFilter::try_new(value)
+        .map(|_| ())
+        .map_err(|error| garde::Error::new(format!("invalid tracing filter: {error}")))
 }
 
 impl ObservabilityConfig {

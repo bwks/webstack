@@ -3,6 +3,44 @@ pub(crate) struct ScaffoldFile {
     pub(crate) contents: &'static str,
 }
 
+const CONFIG: &str = r#"[server]
+bind_addr = "127.0.0.1"
+https_port = 8443
+http_port = 8080
+http_redirect = false
+
+[tls]
+mode = "disabled"
+domain = ""
+acme_email = ""
+acme_cache_dir = "./data/acme"
+acme_staging = false
+
+[database]
+data_dir = "./data/surreal"
+namespace = "app"
+database = "app"
+
+[auth]
+session_ttl_hours = 168
+bootstrap_admin = true
+
+[backup]
+enabled = false
+cron = "0 0 3 * * *"
+retention = 14
+
+[backup.r2]
+account_id = ""
+bucket = ""
+prefix = "db-backups/"
+# Credentials are accepted only from R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.
+
+[observability]
+filter = "info"
+format = "pretty"
+"#;
+
 pub(crate) const FILES: &[ScaffoldFile] = &[
     ScaffoldFile {
         path: "Cargo.toml",
@@ -24,11 +62,18 @@ unsafe_code = "forbid"
     ScaffoldFile {
         path: "src/main.rs",
         contents: r#"use webstack::prelude::*;
+use webstack::axum::routing::get;
 
-fn main() -> anyhow::Result<()> {
-    webstack::observability::init(&ObservabilityConfig::default())?;
-    let _application = Application::new();
-    webstack::tracing::info!(application = "{{app_name}}", "application composed");
+async fn index() -> &'static str {
+    "{{app_name}}"
+}
+
+#[webstack::tokio::main(crate = "webstack::tokio")]
+async fn main() -> anyhow::Result<()> {
+    Application::builder()
+        .route("/", get(index))?
+        .run()
+        .await?;
     Ok(())
 }
 "#,
@@ -52,31 +97,61 @@ profile = "default"
     },
     ScaffoldFile {
         path: ".gitignore",
-        contents: "/target/\n/assets/css/app.css\n/tools/tailwindcss\n/data/\n/config.toml\n",
+        contents: r"/target/
+/assets/css/app.css
+/tools/tailwindcss
+/data/
+/webstack.toml
+",
     },
     ScaffoldFile {
         path: "README.md",
-        contents: "# {{app_name}}\n\nA Webstack application. See [`docs/README.md`](docs/README.md).\n\n## First Run\n\n```sh\ngit init -b main\ncargo check\n```\n\nCommit the `Cargo.lock` created by the first Cargo command.\n",
+        contents: r"# {{app_name}}
+
+A Webstack application. See [`docs/README.md`](docs/README.md).
+
+## First Run
+
+```sh
+git init -b main
+cargo check
+```
+
+Commit the `Cargo.lock` created by the first Cargo command.
+",
     },
     ScaffoldFile {
-        path: "config.example.toml",
-        contents: "# Application configuration will be added with the runtime milestone.\n",
+        path: "webstack.toml",
+        contents: CONFIG,
+    },
+    ScaffoldFile {
+        path: "webstack.example.toml",
+        contents: CONFIG,
     },
     ScaffoldFile {
         path: "justfile",
-        contents: "check:\n    cargo fmt --check\n    cargo clippy --all-targets --all-features -- -D warnings\n    cargo test --all-features\n",
+        contents: r"check:
+    cargo fmt --check
+    cargo clippy --all-targets --all-features -- -D warnings
+    cargo test --all-features
+",
     },
     ScaffoldFile {
         path: "bacon.toml",
-        contents: "[jobs.check]\ncommand = [\"cargo\", \"check\", \"--all-targets\", \"--all-features\"]\nneed_stdout = false\n",
+        contents: r#"[jobs.check]
+command = ["cargo", "check", "--all-targets", "--all-features"]
+need_stdout = false
+"#,
     },
     ScaffoldFile {
         path: "assets/css/input.css",
-        contents: "/* Tailwind and daisyUI configuration is added by the assets milestone. */\n",
+        contents: r"/* Tailwind and daisyUI configuration is added by the assets milestone. */
+",
     },
     ScaffoldFile {
         path: "assets/js/htmx.min.js",
-        contents: "/* Vendored htmx is added by the assets milestone. */\n",
+        contents: r"/* Vendored htmx is added by the assets milestone. */
+",
     },
     ScaffoldFile {
         path: "assets/images/.gitkeep",
@@ -92,19 +167,35 @@ profile = "default"
     },
     ScaffoldFile {
         path: "docs/README.md",
-        contents: "# {{app_name}} Documentation\n\n- [Architecture](architecture.md)\n- [Development](development.md)\n- [Deployment](deployment.md)\n",
+        contents: r"# {{app_name}} Documentation
+
+- [Architecture](architecture.md)
+- [Development](development.md)
+- [Deployment](deployment.md)
+",
     },
     ScaffoldFile {
         path: "docs/architecture.md",
-        contents: "# Architecture\n\nThis application uses the Webstack facade and owns its domain code, templates, assets, and migrations.\n",
+        contents: r"# Architecture
+
+This application uses the Webstack facade and owns its domain code, templates, assets, and migrations.
+",
     },
     ScaffoldFile {
         path: "docs/development.md",
-        contents: "# Development\n\nRun `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` before committing.\n\nThe binary initializes Webstack tracing at info level. Use `webstack::tracing` for structured application events and never log secrets.\n",
+        contents: r"# Development
+
+Run `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings` before committing.
+
+Webstack loads `webstack.toml` and initializes tracing before serving. Use `webstack::tracing` for structured application events and never log secrets.
+",
     },
     ScaffoldFile {
         path: "docs/deployment.md",
-        contents: "# Deployment\n\nDeployment behavior will be documented as runtime support is implemented.\n",
+        contents: r"# Deployment
+
+Deployment behavior will be documented as runtime support is implemented.
+",
     },
     ScaffoldFile {
         path: "tests/application.rs",
@@ -112,7 +203,7 @@ profile = "default"
 
 #[test]
 fn application_can_be_composed_from_the_facade() {
-    let _application = Application::new();
+    let _application = Application::builder();
 }
 ",
     },

@@ -17,7 +17,7 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 - **Static assets:** `rust-embed` — disk reads in debug (hot reload), embedded in release
 - **Database:** SurrealDB embedded, `surrealdb` crate with `kv-rocksdb` feature
 - **Auth:** `axum-login` + `tower-sessions` + `argon2` (local accounts, RBAC; no OIDC)
-- **Config:** plain `toml` crate + serde — one `config.toml`, minimal env overrides
+- **Config:** `webstack.toml` parsed with `toml` + serde and validated with Garde
 - **Backup:** SurrealDB logical export → gzip → Cloudflare R2 via `aws-sdk-s3`
 - **Scheduler:** `tokio-cron-scheduler` (fallback: plain `tokio::time` loop)
 - **Observability:** `tracing` + `tracing-subscriber`
@@ -53,11 +53,11 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
    the `HX-Request` header to decide partial vs full render. Auth failures for
    htmx requests respond with `HX-Redirect` to `/login` (a plain 302 would be
    swallowed into a partial swap).
-9. **Config is boring on purpose.** One `config.toml`, `toml` crate + serde with
+9. **Config is boring on purpose.** One `webstack.toml`, `toml` + serde + Garde with
    `#[serde(default)]` everywhere. Exactly three env overrides, applied after
    parsing, for secrets only: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-   `R2_SECRET_ACCESS_KEY`. Config path from `--config <path>` arg or
-   `APP_CONFIG` env, default `./config.toml`. `Config::validate()` at startup
+   `R2_SECRET_ACCESS_KEY`. Configuration always loads from `./webstack.toml`.
+   Garde validation runs at startup
    with clear errors (e.g. acme mode requires domain + email).
 
 ## Crate Notes (checked July 2026)
@@ -75,7 +75,7 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 .
 ├── Cargo.toml
 ├── PLAN.md
-├── config.toml               # single config file (example committed as config.example.toml)
+├── webstack.toml             # ignored local file (example committed as webstack.example.toml)
 ├── justfile                  # dev / css / release / certs / backup tasks
 ├── bacon.toml                # bacon jobs: run, clippy, test
 ├── build.rs                  # rerun-if-changed static/ + templates/; fail release if app.css missing
@@ -145,7 +145,7 @@ anyhow = "1"
 thiserror = "2"
 ```
 
-## config.toml Schema
+## webstack.toml Schema
 ```toml
 [server]
 bind_addr = "0.0.0.0"
@@ -295,4 +295,3 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Never write a script that copies the RocksDB data directory — exports only
 - Do not add cargo-watch, figment, or the config crate (see Crate Notes)
 - If a pinned version conflicts, prefer the latest compatible and note the change
-

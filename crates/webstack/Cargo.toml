@@ -7,8 +7,11 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
+webstack-web = { path = "../webstack-web" }
 
 [lints]
 workspace = true

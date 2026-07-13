@@ -1,13 +1,4 @@
-#![doc = "Application lifecycle and composition primitives."]
+#![doc = "Lifecycle-independent configuration and observability primitives."]
 
+pub mod config;
 pub mod observability;
-
-#[derive(Debug, Default)]
-pub struct Application;
-
-impl Application {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}

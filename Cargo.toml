@@ -29,9 +29,16 @@ pedantic = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 anyhow = "1.0.103"
+axum = "0.8.9"
 clap = { version = "4.6.1", features = ["derive"] }
+garde = { version = "0.23.0", features = ["derive"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+toml = "1.1.2"
+tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

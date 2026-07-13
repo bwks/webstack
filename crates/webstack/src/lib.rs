@@ -1,10 +1,13 @@
 #![doc = "The supported facade for applications built with Webstack."]
 
+pub use serde;
+pub use tokio;
 pub use tracing;
-pub use webstack_core::Application;
-pub use webstack_core::observability;
+pub use webstack_core::{config, observability};
+pub use webstack_web::{AppState, Application, ApplicationBuilder, ApplicationError, axum};
 
 pub mod prelude {
-    pub use webstack_core::Application;
+    pub use webstack_core::config::Config;
     pub use webstack_core::observability::{LogFormat, ObservabilityConfig};
+    pub use webstack_web::{AppState, Application, ApplicationError};
 }
