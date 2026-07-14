@@ -1,7 +1,9 @@
 #![doc = "Command-line tooling for generating and developing Webstack applications."]
 
+mod assets;
 mod generator;
 mod scaffold;
+mod tools;
 
 use std::path::PathBuf;
 
@@ -9,6 +11,7 @@ use clap::{Args, Parser, Subcommand};
 use generator::GenerateOptions;
 use thiserror::Error;
 
+pub use assets::AssetError;
 pub use generator::GenerateError;
 
 #[derive(Debug, Parser)]
@@ -45,8 +48,8 @@ impl Cli {
     /// # Errors
     ///
     /// Returns a typed operational error when the selected command fails.
-    pub fn execute(self) -> Result<(), CliError> {
-        execute(self.command)
+    pub async fn execute(self) -> Result<(), CliError> {
+        execute(self.command).await
     }
 }
 
@@ -84,7 +87,7 @@ struct NewArgs {
 
 #[derive(Debug, Subcommand)]
 enum AssetCommand {
-    /// Download the standalone Tailwind CLI.
+    /// Download and verify configured frontend assets and tools.
     Setup,
 }
 
@@ -94,17 +97,33 @@ enum GenerateCommand {
     Migration { name: String },
 }
 
+/// A typed operational failure returned by the Webstack CLI library.
+#[derive(Debug, Error)]
+pub enum CliError {
+    /// Application generation failed.
+    #[error(transparent)]
+    Generate(#[from] GenerateError),
+
+    /// Frontend tooling could not be provisioned.
+    #[error(transparent)]
+    Assets(#[from] AssetError),
+
+    /// The requested command is part of a later milestone.
+    #[error("webstack {0}: not implemented yet")]
+    NotImplemented(&'static str),
+}
+
 /// Parses process arguments and executes the selected command.
 ///
 /// # Errors
 ///
 /// Returns an error when an operational command cannot be completed. Clap
 /// reports argument parsing errors directly before this function returns.
-pub fn run() -> Result<(), CliError> {
-    Cli::parse_args().execute()
+pub async fn run() -> Result<(), CliError> {
+    Cli::parse_args().execute().await
 }
 
-fn execute(command: Command) -> Result<(), CliError> {
+async fn execute(command: Command) -> Result<(), CliError> {
     match command {
         Command::New(args) => {
             let target = args.directory.unwrap_or_else(|| PathBuf::from(&args.name));
@@ -114,16 +133,30 @@ fn execute(command: Command) -> Result<(), CliError> {
                 framework_path: args.framework_path,
             };
             let generated = generator::generate(&options)?;
+            if std::env::var_os("WEBSTACK_SKIP_ASSET_SETUP").is_none()
+                && let Err(error) =
+                    assets::setup(&generated, &webstack_core::config::AssetsConfig::default()).await
+            {
+                let _ = std::fs::remove_dir_all(&generated);
+                return Err(error.into());
+            }
             println!(
-                "Created {}\n\nNext steps:\n  cd {}\n  git init -b main\n  cargo check",
+                "Created {}\n\nNext steps:\n  cd {}\n  git init -b main\n  just dev",
                 generated.display(),
                 generated.display()
             );
             Ok(())
         }
-        Command::Assets { command } => not_implemented(match command {
-            AssetCommand::Setup => "assets setup",
-        }),
+        Command::Assets { command } => match command {
+            AssetCommand::Setup => {
+                let root = std::env::current_dir().map_err(AssetError::Io)?;
+                assets::setup_from_config(&root).await?;
+                println!(
+                    "Frontend assets are downloaded and verified. Run `just css` to build CSS."
+                );
+                Ok(())
+            }
+        },
         Command::Generate { command } => not_implemented(match command {
             GenerateCommand::Migration { name: _ } => "generate migration",
         }),
@@ -133,16 +166,4 @@ fn execute(command: Command) -> Result<(), CliError> {
 
 fn not_implemented(command: &'static str) -> Result<(), CliError> {
     Err(CliError::NotImplemented(command))
-}
-
-/// A typed operational failure returned by the Webstack CLI library.
-#[derive(Debug, Error)]
-pub enum CliError {
-    /// Application generation failed.
-    #[error(transparent)]
-    Generate(#[from] GenerateError),
-
-    /// The requested command is part of a later milestone.
-    #[error("webstack {0}: not implemented yet")]
-    NotImplemented(&'static str),
 }

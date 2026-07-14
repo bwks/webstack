@@ -11,7 +11,7 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 - **Web framework:** Axum (latest stable, 0.8+)
 - **HTTPS:** `axum-server` (rustls) + `rustls-acme` — no reverse proxy, no Caddy
 - **Templates:** Askama (compile-time, typed)
-- **Reactivity:** htmx (vendored, compiled into the binary)
+- **Reactivity:** htmx v4 (beta accepted until stable; vendored and compiled into the binary)
 - **CSS:** Tailwind CSS v4 + daisyUI via standalone Tailwind CLI (no Node), output
   compiled into the binary
 - **Static assets:** `rust-embed` — disk reads in debug (hot reload), embedded in release
@@ -69,6 +69,26 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
   Keep our code behind its traits; auth lives in one module.
 - `tokio-cron-scheduler` is active. If it causes friction, a plain tokio sleep
   loop for the single daily backup job is an acceptable replacement.
+
+## Rust Coding Conventions
+
+- Declare imports only in the import section at the top of a Rust source file.
+  Do not place `use` declarations inside functions or other production-code
+  blocks. Imports inside `#[cfg(test)] mod tests` blocks are the only exception.
+- Declare every `struct` and `enum` at module scope after imports and module
+  constants, and before free functions. Never declare a `struct` or `enum`
+  inside a function or other block. Place every inherent and trait `impl`
+  immediately after the `struct` or `enum` it implements. Keep multiple `impl`
+  blocks for the same type contiguous, with no unrelated items between the type
+  and its implementations. Apply the same ordering inside test modules.
+- Production Rust code must never spawn shell commands or external processes.
+  Do not use `std::process::Command`, `tokio::process`, process wrapper crates,
+  or equivalent APIs. Invoke developer tools from `just`, CI, or another
+  developer-facing task runner instead. Test-only black-box orchestration may
+  launch processes from test code.
+- The repository test that scans production Rust for process-launching APIs is
+  a required architecture guard. Do not weaken it, exclude crates from it, or
+  bypass it to make an implementation pass.
 
 ## Project Layout
 ```

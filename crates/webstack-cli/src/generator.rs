@@ -17,6 +17,25 @@ pub(crate) struct GenerateOptions {
     pub(crate) framework_path: Option<PathBuf>,
 }
 
+/// An application generation failure.
+#[derive(Debug, Error)]
+pub enum GenerateError {
+    /// The package name does not follow Webstack's naming convention.
+    #[error("application name {0:?} must be lowercase kebab-case")]
+    InvalidName(String),
+
+    /// The generator refuses to write into any existing filesystem entry.
+    #[error("target already exists: {}", .0.display())]
+    TargetExists(PathBuf),
+
+    /// Scaffold files could not be written completely.
+    #[error("cannot write scaffold: {source}")]
+    WriteScaffold {
+        #[source]
+        source: io::Error,
+    },
+}
+
 #[tracing::instrument(
     name = "generate_application",
     skip_all,
@@ -85,23 +104,4 @@ fn framework_dependency(path: Option<&Path>) -> io::Result<String> {
             "{{ git = \"{FRAMEWORK_GIT}\", branch = \"{FRAMEWORK_BRANCH}\" }}"
         ))
     }
-}
-
-/// An application generation failure.
-#[derive(Debug, Error)]
-pub enum GenerateError {
-    /// The package name does not follow Webstack's naming convention.
-    #[error("application name {0:?} must be lowercase kebab-case")]
-    InvalidName(String),
-
-    /// The generator refuses to write into any existing filesystem entry.
-    #[error("target already exists: {}", .0.display())]
-    TargetExists(PathBuf),
-
-    /// Scaffold files could not be written completely.
-    #[error("cannot write scaffold: {source}")]
-    WriteScaffold {
-        #[source]
-        source: io::Error,
-    },
 }

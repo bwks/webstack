@@ -1,9 +1,88 @@
 use std::{fs, path::Path, process::Command};
 
+use syn::{
+    Item, ItemImpl, Stmt, Type,
+    visit::{self, Visit},
+};
 use tempfile::TempDir;
 
+struct LocalTypeVisitor {
+    found_local_type: bool,
+}
+
+impl<'ast> Visit<'ast> for LocalTypeVisitor {
+    fn visit_stmt(&mut self, statement: &'ast Stmt) {
+        if matches!(statement, Stmt::Item(Item::Struct(_) | Item::Enum(_))) {
+            self.found_local_type = true;
+        }
+        visit::visit_stmt(self, statement);
+    }
+}
+
 fn webstack() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_webstack"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_webstack"));
+    command.env("WEBSTACK_SKIP_ASSET_SETUP", "1");
+    command
+}
+
+fn impl_target(item: &ItemImpl) -> Option<String> {
+    let Type::Path(target) = item.self_ty.as_ref() else {
+        return None;
+    };
+    target
+        .path
+        .segments
+        .last()
+        .map(|segment| segment.ident.to_string())
+}
+
+fn assert_type_and_impl_order(items: &[Item], path: &Path) {
+    let mut adjacent_type = None;
+    let mut free_function_seen = false;
+    for item in items {
+        match item {
+            Item::Struct(item) => {
+                assert!(
+                    !free_function_seen,
+                    "{} declares struct {} after a free function",
+                    path.display(),
+                    item.ident
+                );
+                adjacent_type = Some(item.ident.to_string());
+            }
+            Item::Enum(item) => {
+                assert!(
+                    !free_function_seen,
+                    "{} declares enum {} after a free function",
+                    path.display(),
+                    item.ident
+                );
+                adjacent_type = Some(item.ident.to_string());
+            }
+            Item::Impl(item) => {
+                let target = impl_target(item)
+                    .unwrap_or_else(|| panic!("{} has an unsupported impl target", path.display()));
+                assert_eq!(
+                    adjacent_type.as_deref(),
+                    Some(target.as_str()),
+                    "{} separates the impl for {target} from its type declaration",
+                    path.display()
+                );
+                adjacent_type = Some(target);
+            }
+            Item::Fn(_) => {
+                adjacent_type = None;
+                free_function_seen = true;
+            }
+            Item::Mod(item) => {
+                if let Some((_, items)) = &item.content {
+                    assert_type_and_impl_order(items, path);
+                }
+                adjacent_type = None;
+            }
+            _ => adjacent_type = None,
+        }
+    }
 }
 
 fn assert_success(output: &std::process::Output) {
@@ -64,7 +143,8 @@ fn new_generates_an_application_owned_project() {
         "assets/css/input.css",
         "assets/js/htmx.min.js",
         "assets/images/.gitkeep",
-        "templates/.gitkeep",
+        "templates/base.html",
+        "templates/pages/index.html",
         "migrations/.gitkeep",
         "docs/README.md",
         "tests/application.rs",
@@ -76,22 +156,32 @@ fn new_generates_an_application_owned_project() {
     assert!(manifest.contains("name = \"inventory-app\""));
     assert!(manifest.contains("branch = \"framework-baseline\""));
     assert!(manifest.contains("anyhow = \"1\""));
+    assert!(manifest.contains("askama = \"0.16\""));
     let main = fs::read_to_string(target.join("src/main.rs")).expect("main source");
     assert!(main.contains("async fn main() -> anyhow::Result<()>"));
     assert!(main.contains("Application::builder()"));
     assert!(!main.contains("ApplicationSettings"));
+    assert!(main.contains(".assets::<Assets>()?"));
     assert!(main.contains(".route(\"/\", get(index))?"));
     assert!(main.contains(".run()"));
     assert!(!main.contains("webstack::observability::init"));
+    let local_config = fs::read_to_string(target.join("webstack.toml")).expect("local config");
     assert_eq!(
-        fs::read_to_string(target.join("webstack.toml")).expect("local config"),
+        local_config,
         fs::read_to_string(target.join("webstack.example.toml")).expect("example config")
     );
+    assert!(local_config.contains("htmx_version = \"4.0.0-beta5\""));
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
+    assert!(!target.join("assets/css/app.css").exists());
+    let justfile = fs::read_to_string(target.join("justfile")).expect("justfile");
+    assert!(justfile.contains("css:"));
+    assert!(justfile.contains("css-watch:"));
+    assert!(justfile.contains("release: css"));
+    assert!(justfile.contains("{{tailwind}} -i assets/css/input.css"));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));
-    assert!(stdout.contains("cargo check"));
+    assert!(stdout.contains("just dev"));
 }
 
 #[test]
@@ -174,7 +264,7 @@ fn new_leaves_version_control_and_dependency_resolution_to_the_developer() {
     assert!(!target.join("Cargo.lock").exists());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));
-    assert!(stdout.contains("cargo check"));
+    assert!(stdout.contains("just dev"));
 }
 
 #[test]
@@ -216,7 +306,7 @@ fn production_framework_sources_do_not_launch_external_processes() {
         .parent()
         .and_then(Path::parent)
         .expect("workspace root");
-    let mut pending = vec![workspace.join("crates")];
+    let mut pending = vec![workspace.join("crates"), workspace.join("examples")];
 
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory).expect("framework source directory") {
@@ -231,7 +321,12 @@ fn production_framework_sources_do_not_launch_external_processes() {
                 for forbidden in [
                     "std::process::Command",
                     "process::Command",
+                    "process::{Command",
+                    "Command::new(",
                     "tokio::process",
+                    "duct::",
+                    "subprocess::",
+                    "xshell::",
                 ] {
                     assert!(
                         !source.contains(forbidden),
@@ -239,6 +334,38 @@ fn production_framework_sources_do_not_launch_external_processes() {
                         path.display()
                     );
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn types_are_module_scoped_and_impls_are_adjacent() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let mut pending = vec![workspace.join("crates"), workspace.join("examples")];
+
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory).expect("Rust source directory") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let source = fs::read_to_string(&path).expect("Rust source");
+                let syntax = syn::parse_file(&source).expect("valid Rust source");
+                assert_type_and_impl_order(&syntax.items, &path);
+
+                let mut visitor = LocalTypeVisitor {
+                    found_local_type: false,
+                };
+                visitor.visit_file(&syntax);
+                assert!(
+                    !visitor.found_local_type,
+                    "{} declares a struct or enum inside a block",
+                    path.display()
+                );
             }
         }
     }

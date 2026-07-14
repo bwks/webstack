@@ -3,8 +3,9 @@ use std::process::ExitCode;
 use anyhow::Context;
 use webstack_core::observability::{self, LogFormat, ObservabilityConfig, ObservabilityError};
 
-fn main() -> ExitCode {
-    match run_command() {
+#[tokio::main]
+async fn main() -> ExitCode {
+    match run_command().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error:#}");
@@ -13,10 +14,10 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_command() -> anyhow::Result<()> {
+async fn run_command() -> anyhow::Result<()> {
     let cli = webstack_cli::Cli::parse_args();
     init_tracing(cli.verbosity()).context("could not initialize CLI tracing")?;
-    cli.execute().context("webstack command failed")
+    cli.execute().await.context("webstack command failed")
 }
 
 fn init_tracing(verbosity: u8) -> Result<(), ObservabilityError> {

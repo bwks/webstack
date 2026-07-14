@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

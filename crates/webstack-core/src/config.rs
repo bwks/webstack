@@ -20,6 +20,8 @@ const CONFIG_PATH: &str = "./webstack.toml";
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     #[garde(dive)]
+    pub assets: AssetsConfig,
+    #[garde(dive)]
     pub server: ServerConfig,
     #[garde(dive)]
     pub tls: TlsConfig,
@@ -98,37 +100,25 @@ impl Config {
     }
 }
 
-fn environment_value(name: &'static str) -> Result<Option<String>, ConfigError> {
-    env::var_os(name)
-        .map(|value| {
-            value
-                .into_string()
-                .map_err(|_| ConfigError::NonUnicodeEnvironment(name))
-        })
-        .transpose()
+/// Versions of frontend artifacts managed by Webstack tooling.
+#[derive(Debug, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct AssetsConfig {
+    #[garde(custom(semantic_version))]
+    pub tailwind_version: String,
+    #[garde(custom(semantic_version))]
+    pub daisyui_version: String,
+    #[garde(custom(semantic_version))]
+    pub htmx_version: String,
 }
 
-fn non_blank<Context>(value: &str, _context: &Context) -> garde::Result {
-    if value.trim().is_empty() {
-        Err(garde::Error::new("must not be empty"))
-    } else {
-        Ok(())
-    }
-}
-
-fn nonempty_path<Context>(value: &Path, _context: &Context) -> garde::Result {
-    if value.as_os_str().is_empty() {
-        Err(garde::Error::new("must not be empty"))
-    } else {
-        Ok(())
-    }
-}
-
-fn non_blank_secret<Context>(value: &SecretString, _context: &Context) -> garde::Result {
-    if value.expose_secret().trim().is_empty() {
-        Err(garde::Error::new("must not be empty"))
-    } else {
-        Ok(())
+impl Default for AssetsConfig {
+    fn default() -> Self {
+        Self {
+            tailwind_version: "4.3.1".to_owned(),
+            daisyui_version: "5.6.18".to_owned(),
+            htmx_version: "4.0.0-beta5".to_owned(),
+        }
     }
 }
 
@@ -341,6 +331,46 @@ pub enum ConfigError {
     Validation { issues: Vec<ValidationIssue> },
 }
 
+fn semantic_version<Context>(value: &str, _context: &Context) -> garde::Result {
+    semver::Version::parse(value)
+        .map(|_| ())
+        .map_err(|_| garde::Error::new("must be a semantic version such as 4.3.1"))
+}
+
+fn environment_value(name: &'static str) -> Result<Option<String>, ConfigError> {
+    env::var_os(name)
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| ConfigError::NonUnicodeEnvironment(name))
+        })
+        .transpose()
+}
+
+fn non_blank<Context>(value: &str, _context: &Context) -> garde::Result {
+    if value.trim().is_empty() {
+        Err(garde::Error::new("must not be empty"))
+    } else {
+        Ok(())
+    }
+}
+
+fn nonempty_path<Context>(value: &Path, _context: &Context) -> garde::Result {
+    if value.as_os_str().is_empty() {
+        Err(garde::Error::new("must not be empty"))
+    } else {
+        Ok(())
+    }
+}
+
+fn non_blank_secret<Context>(value: &SecretString, _context: &Context) -> garde::Result {
+    if value.expose_secret().trim().is_empty() {
+        Err(garde::Error::new("must not be empty"))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -403,7 +433,21 @@ format = "json"
         let config = Config::load_file(&path).expect("valid config");
 
         assert_eq!(config.server.http_port, 9000);
+        assert_eq!(config.assets.tailwind_version, "4.3.1");
         assert_eq!(config.observability.format(), LogFormat::Json);
+    }
+
+    #[test]
+    fn asset_versions_must_be_semantic_versions() {
+        let temp = TempDir::new().expect("temporary directory");
+        let path = write_config(temp.path(), "[assets]\ntailwind_version = \"latest\"\n");
+
+        let fields = validation_fields(Config::load_file(&path).expect_err("invalid version"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "assets.tailwind_version")
+        );
     }
 
     #[test]

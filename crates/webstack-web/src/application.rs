@@ -12,7 +12,10 @@ use webstack_core::{
     observability::{self, ObservabilityError},
 };
 
+use rust_embed::RustEmbed;
+
 const HEALTH_PATH: &str = "/healthz";
+const STATIC_PATH: &str = "/static";
 
 /// Entry point for composing one generated application's HTTP runtime.
 pub struct Application;
@@ -23,6 +26,7 @@ impl Application {
         ApplicationBuilder {
             router: Router::new(),
             route_count: 0,
+            assets_registered: false,
         }
     }
 }
@@ -31,6 +35,7 @@ impl Application {
 pub struct ApplicationBuilder {
     router: Router<AppState>,
     route_count: usize,
+    assets_registered: bool,
 }
 
 impl ApplicationBuilder {
@@ -44,11 +49,30 @@ impl ApplicationBuilder {
         path: &str,
         method_router: MethodRouter<AppState>,
     ) -> Result<Self, ApplicationError> {
-        if path == HEALTH_PATH {
+        if path == HEALTH_PATH || path == STATIC_PATH || path.starts_with("/static/") {
             return Err(ApplicationError::ReservedRoute(path.to_owned()));
         }
         self.router = self.router.route(path, method_router);
         self.route_count += 1;
+        Ok(self)
+    }
+
+    /// Registers an application-owned embedded asset collection at `/static`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApplicationError::AssetsAlreadyRegistered`] when called twice.
+    pub fn assets<A>(mut self) -> Result<Self, ApplicationError>
+    where
+        A: RustEmbed + Send + Sync + 'static,
+    {
+        if self.assets_registered {
+            return Err(ApplicationError::AssetsAlreadyRegistered);
+        }
+        self.router = self
+            .router
+            .route("/static/{*path}", get(crate::assets::serve::<A>));
+        self.assets_registered = true;
         Ok(self)
     }
 
@@ -114,6 +138,29 @@ struct Health {
     status: &'static str,
 }
 
+/// A typed application composition or runtime failure.
+#[derive(Debug, Error)]
+pub enum ApplicationError {
+    #[error("route {0:?} is reserved by Webstack")]
+    ReservedRoute(String),
+    #[error("embedded assets have already been registered")]
+    AssetsAlreadyRegistered,
+    #[error("{0} support is not implemented yet; disable it in configuration")]
+    UnsupportedFeature(&'static str),
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+    #[error(transparent)]
+    Observability(#[from] ObservabilityError),
+    #[error("cannot bind HTTP listener at {address}")]
+    Bind {
+        address: SocketAddr,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("HTTP server failed")]
+    Serve(#[source] std::io::Error),
+}
+
 async fn health() -> Json<Health> {
     Json(Health { status: "ok" })
 }
@@ -164,27 +211,6 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutdown signal received");
-}
-
-/// A typed application composition or runtime failure.
-#[derive(Debug, Error)]
-pub enum ApplicationError {
-    #[error("route {0:?} is reserved by Webstack")]
-    ReservedRoute(String),
-    #[error("{0} support is not implemented yet; disable it in configuration")]
-    UnsupportedFeature(&'static str),
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-    #[error(transparent)]
-    Observability(#[from] ObservabilityError),
-    #[error("cannot bind HTTP listener at {address}")]
-    Bind {
-        address: SocketAddr,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("HTTP server failed")]
-    Serve(#[source] std::io::Error),
 }
 
 #[cfg(test)]

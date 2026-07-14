@@ -28,12 +28,6 @@ pub struct ObservabilityConfig {
     format: LogFormat,
 }
 
-fn valid_filter<Context>(value: &str, _context: &Context) -> garde::Result {
-    EnvFilter::try_new(value)
-        .map(|_| ())
-        .map_err(|error| garde::Error::new(format!("invalid tracing filter: {error}")))
-}
-
 impl ObservabilityConfig {
     /// Creates tracing configuration from a filter directive and output format.
     #[must_use]
@@ -77,6 +71,24 @@ impl Default for ObservabilityConfig {
     }
 }
 
+/// A tracing configuration or initialization failure.
+#[derive(Debug, Error)]
+pub enum ObservabilityError {
+    /// The configured filter directive is invalid.
+    #[error("invalid tracing filter: {0}")]
+    InvalidFilter(#[source] ParseError),
+
+    /// A global tracing subscriber was already installed.
+    #[error("tracing subscriber is already initialized")]
+    AlreadyInitialized(#[source] tracing::subscriber::SetGlobalDefaultError),
+}
+
+fn valid_filter<Context>(value: &str, _context: &Context) -> garde::Result {
+    EnvFilter::try_new(value)
+        .map(|_| ())
+        .map_err(|error| garde::Error::new(format!("invalid tracing filter: {error}")))
+}
+
 /// Installs the process-global tracing subscriber.
 ///
 /// Log output is written to stderr. ANSI styling is enabled only for pretty
@@ -114,18 +126,6 @@ pub fn init(config: &ObservabilityConfig) -> Result<(), ObservabilityError> {
     }
 }
 
-/// A tracing configuration or initialization failure.
-#[derive(Debug, Error)]
-pub enum ObservabilityError {
-    /// The configured filter directive is invalid.
-    #[error("invalid tracing filter: {0}")]
-    InvalidFilter(#[source] ParseError),
-
-    /// A global tracing subscriber was already installed.
-    #[error("tracing subscriber is already initialized")]
-    AlreadyInitialized(#[source] tracing::subscriber::SetGlobalDefaultError),
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -142,8 +142,6 @@ mod tests {
     #[derive(Clone, Default)]
     struct Captured(Arc<Mutex<Vec<u8>>>);
 
-    struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
-
     impl Captured {
         fn text(&self) -> String {
             String::from_utf8(self.0.lock().expect("capture lock").clone())
@@ -158,6 +156,8 @@ mod tests {
             CapturedWriter(Arc::clone(&self.0))
         }
     }
+
+    struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
 
     impl Write for CapturedWriter {
         fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {

@@ -13,12 +13,20 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+reqwest.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
 
 [dev-dependencies]
-tempfile.workspace = true
+syn.workspace = true
 
 [lints]
 workspace = true
