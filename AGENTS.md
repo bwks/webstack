@@ -89,6 +89,11 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 - The repository test that scans production Rust for process-launching APIs is
   a required architecture guard. Do not weaken it, exclude crates from it, or
   bypass it to make an implementation pass.
+- Add a meaningful `///` doc comment to every production function and method,
+  including private functions and trait implementations. Apply the same rule
+  to Rust functions emitted by the application generator. Test functions and
+  test-only helpers are exempt. The source-policy test enforcing this rule is
+  required and must not be weakened or bypassed.
 
 ## Project Layout
 ```
@@ -222,8 +227,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   `just dev` (bacon run + `tailwindcss --watch` concurrently),
   `just release` (css → `cargo build --release`); `bacon.toml` with run/clippy/test jobs
 - **Done when:** `just dev` serves a styled page over plain HTTP, and
-  `just release` produces a binary that serves CSS/JS correctly when copied
-  alone into an empty directory.
+  `just smoke-release` proves a release binary serves its compiled templates,
+  CSS, and htmx from an isolated directory containing only the binary and the
+  required `webstack.toml`.
 
 ### Phase 2: TLS
 - `tls.rs` with the three-mode switch from config:

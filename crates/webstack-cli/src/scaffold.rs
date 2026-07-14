@@ -84,6 +84,7 @@ struct IndexTemplate {
     app_name: &'static str,
 }
 
+/// Renders the generated application's home page.
 async fn index() -> IndexTemplate {
     IndexTemplate {
         app_name: "{{app_name}}",
@@ -91,6 +92,7 @@ async fn index() -> IndexTemplate {
 }
 
 #[webstack::tokio::main(crate = "webstack::tokio")]
+/// Composes and runs the generated Webstack application.
 async fn main() -> anyhow::Result<()> {
     Application::builder()
         .assets::<Assets>()?
@@ -103,7 +105,8 @@ async fn main() -> anyhow::Result<()> {
     },
     ScaffoldFile {
         path: "build.rs",
-        contents: r#"fn main() {
+        contents: r#"/// Verifies release assets and configures Cargo rebuild inputs.
+fn main() {
     println!("cargo::rerun-if-changed=assets");
     println!("cargo::rerun-if-changed=templates");
     println!("cargo::rerun-if-changed=migrations");

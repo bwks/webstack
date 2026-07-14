@@ -44,10 +44,12 @@ struct Platform {
 }
 
 impl Platform {
+    /// Detects the platform used by the running CLI.
     fn current() -> Result<Self, AssetError> {
         Self::new(env::consts::OS, env::consts::ARCH)
     }
 
+    /// Validates and constructs a supported asset-tool platform.
     fn new(os: &'static str, architecture: &'static str) -> Result<Self, AssetError> {
         match (os, architecture) {
             ("linux" | "macos", "x86_64" | "aarch64") | ("windows", "x86_64") => {
@@ -57,6 +59,7 @@ impl Platform {
         }
     }
 
+    /// Returns the upstream Tailwind release asset name for this platform.
     fn tailwind_asset(self) -> &'static str {
         match (self.os, self.architecture) {
             ("linux", "x86_64") => "tailwindcss-linux-x64",
@@ -68,6 +71,7 @@ impl Platform {
         }
     }
 
+    /// Returns the generated application's Tailwind executable path.
     fn tailwind_path(self) -> &'static str {
         if self.os == "windows" {
             "tools/tailwindcss.exe"
@@ -121,6 +125,7 @@ pub enum AssetError {
 }
 
 impl AssetError {
+    /// Adds this error to an aggregate download failure without nesting aggregates.
     fn record_download_failure(self, artifact: &str, failures: &mut Vec<String>) {
         match self {
             Self::DownloadFailures(nested) => failures.extend(nested),
@@ -129,10 +134,12 @@ impl AssetError {
     }
 }
 
+/// Downloads, verifies, and installs the requested frontend asset versions.
 pub(crate) async fn setup(root: &Path, versions: &AssetsConfig) -> Result<(), AssetError> {
     setup_for(root, versions, Platform::current()?, &HttpClient::new()?).await
 }
 
+/// Loads frontend versions from `webstack.toml` and provisions them.
 pub(crate) async fn setup_from_config(root: &Path) -> Result<(), AssetError> {
     let path = root.join("webstack.toml");
     let source = fs::read_to_string(&path).map_err(|source| AssetError::ReadConfig {
@@ -144,6 +151,7 @@ pub(crate) async fn setup_from_config(root: &Path) -> Result<(), AssetError> {
     setup(root, &config.assets).await
 }
 
+/// Validates asset versions and installs every artifact as one operation.
 async fn setup_for(
     root: &Path,
     versions: &AssetsConfig,
@@ -199,6 +207,7 @@ async fn setup_for(
     install(root, &artifacts)
 }
 
+/// Downloads and verifies the daisyUI plugin and theme modules.
 async fn download_daisyui(client: &HttpClient, version: &str) -> Result<Vec<Artifact>, AssetError> {
     let url = format!("https://api.github.com/repos/saadeghi/daisyui/releases/tags/v{version}");
     let release: GithubRelease = serde_json::from_slice(&client.get(&url).await?)?;
@@ -230,6 +239,7 @@ async fn download_daisyui(client: &HttpClient, version: &str) -> Result<Vec<Arti
     }
 }
 
+/// Downloads and verifies the Tailwind standalone executable.
 async fn download_tailwind(
     client: &HttpClient,
     version: &str,
@@ -248,6 +258,7 @@ async fn download_tailwind(
     .await
 }
 
+/// Downloads and verifies the configured htmx release asset.
 async fn download_htmx(client: &HttpClient, version: &str) -> Result<Artifact, AssetError> {
     let url = format!("https://api.github.com/repos/bigskysoftware/htmx/releases/tags/v{version}");
     let release: GithubRelease = serde_json::from_slice(&client.get(&url).await?)?;
@@ -261,6 +272,7 @@ async fn download_htmx(client: &HttpClient, version: &str) -> Result<Artifact, A
     .await
 }
 
+/// Resolves, downloads, and verifies one named GitHub release asset.
 async fn download_release_asset(
     client: &HttpClient,
     release: &GithubRelease,
@@ -287,6 +299,7 @@ async fn download_release_asset(
     })
 }
 
+/// Verifies artifact bytes against a hexadecimal SHA-256 digest.
 fn verify_sha256(name: &str, data: &[u8], expected: &str) -> Result<(), AssetError> {
     let actual = format!("{:x}", Sha256::digest(data));
     if actual == expected {
@@ -296,6 +309,7 @@ fn verify_sha256(name: &str, data: &[u8], expected: &str) -> Result<(), AssetErr
     }
 }
 
+/// Writes artifacts to staging before committing them to the application.
 fn install(root: &Path, artifacts: &[Artifact]) -> Result<(), AssetError> {
     let staging = tempfile::Builder::new()
         .prefix(".webstack-assets-")
@@ -311,6 +325,7 @@ fn install(root: &Path, artifacts: &[Artifact]) -> Result<(), AssetError> {
     commit_staging(root, &staging, artifacts)
 }
 
+/// Moves every staged artifact into its final application path.
 fn commit_staging(
     root: &Path,
     staging: &TempDir,
@@ -331,6 +346,7 @@ fn commit_staging(
 }
 
 #[cfg(unix)]
+/// Applies executable permissions to a Unix artifact when requested.
 fn set_executable(path: &Path, executable: bool) -> io::Result<()> {
     if executable {
         fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
@@ -339,6 +355,7 @@ fn set_executable(path: &Path, executable: bool) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
+/// Leaves permissions unchanged on platforms without Unix permission bits.
 fn set_executable(_path: &Path, _executable: bool) -> io::Result<()> {
     Ok(())
 }

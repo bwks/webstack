@@ -41,6 +41,7 @@ pub enum GenerateError {
     skip_all,
     fields(app.name = %options.name, target = %options.target.display())
 )]
+/// Generates a new application without invoking external development tools.
 pub(crate) fn generate(options: &GenerateOptions) -> Result<PathBuf, GenerateError> {
     validate_name(&options.name)?;
     if options.target.exists() {
@@ -58,6 +59,7 @@ pub(crate) fn generate(options: &GenerateOptions) -> Result<PathBuf, GenerateErr
     Ok(options.target.clone())
 }
 
+/// Renders and writes every file in the application scaffold.
 fn write_scaffold(options: &GenerateOptions) -> io::Result<()> {
     let dependency = framework_dependency(options.framework_path.as_deref())?;
     for file in scaffold::FILES {
@@ -74,6 +76,7 @@ fn write_scaffold(options: &GenerateOptions) -> io::Result<()> {
     Ok(())
 }
 
+/// Validates Webstack's lowercase kebab-case application naming convention.
 fn validate_name(name: &str) -> Result<(), GenerateError> {
     let valid = !name.is_empty()
         && name.as_bytes()[0].is_ascii_lowercase()
@@ -89,6 +92,7 @@ fn validate_name(name: &str) -> Result<(), GenerateError> {
     }
 }
 
+/// Builds the generated manifest entry for the Webstack facade crate.
 fn framework_dependency(path: Option<&Path>) -> io::Result<String> {
     if let Some(path) = path {
         let root = path.canonicalize()?;

@@ -62,7 +62,7 @@ flowchart TB
             AppRoutes["Application routes"]:::implemented
             Auth["Login, sessions, RBAC<br/>argon2id + axum-login"]:::planned
             Views["Askama full pages<br/>and htmx partials"]:::planned
-            Assets["Embedded CSS, JS,<br/>images and htmx"]:::planned
+            Assets["Embedded CSS, JS,<br/>images and htmx"]:::implemented
         end
 
         State["Shared AppState<br/>Webstack Config"]:::implemented

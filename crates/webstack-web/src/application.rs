@@ -21,6 +21,7 @@ const STATIC_PATH: &str = "/static";
 pub struct Application;
 
 impl Application {
+    /// Starts composing a Webstack application.
     #[must_use]
     pub fn builder() -> ApplicationBuilder {
         ApplicationBuilder {
@@ -76,6 +77,7 @@ impl ApplicationBuilder {
         Ok(self)
     }
 
+    /// Returns the number of application-owned routes for framework tests.
     #[doc(hidden)]
     #[must_use]
     pub const fn route_count(&self) -> usize {
@@ -106,6 +108,7 @@ impl ApplicationBuilder {
         serve(listener, router, shutdown_signal()).await
     }
 
+    /// Converts the builder into a stateful Axum router with framework routes.
     fn into_router(self, config: Arc<Config>) -> Router {
         self.router
             .route(HEALTH_PATH, get(health))
@@ -119,6 +122,7 @@ pub struct AppState {
 }
 
 impl Clone for AppState {
+    /// Clones the shared application state handles.
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
@@ -127,6 +131,7 @@ impl Clone for AppState {
 }
 
 impl AppState {
+    /// Returns the validated Webstack configuration.
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
@@ -161,10 +166,12 @@ pub enum ApplicationError {
     Serve(#[source] std::io::Error),
 }
 
+/// Returns the framework's minimal health response.
 async fn health() -> Json<Health> {
     Json(Health { status: "ok" })
 }
 
+/// Rejects configured runtime features that belong to later milestones.
 fn validate_runtime_features(config: &Config) -> Result<(), ApplicationError> {
     if config.tls.mode != TlsMode::Disabled {
         return Err(ApplicationError::UnsupportedFeature("TLS"));
@@ -175,6 +182,7 @@ fn validate_runtime_features(config: &Config) -> Result<(), ApplicationError> {
     Ok(())
 }
 
+/// Serves a router until the supplied shutdown future completes.
 async fn serve(
     listener: TcpListener,
     router: Router,
@@ -186,6 +194,7 @@ async fn serve(
         .map_err(ApplicationError::Serve)
 }
 
+/// Waits for Ctrl+C or the platform's termination signal.
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {

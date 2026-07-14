@@ -123,6 +123,7 @@ pub async fn run() -> Result<(), CliError> {
     Cli::parse_args().execute().await
 }
 
+/// Dispatches one parsed CLI command.
 async fn execute(command: Command) -> Result<(), CliError> {
     match command {
         Command::New(args) => {
@@ -164,6 +165,7 @@ async fn execute(command: Command) -> Result<(), CliError> {
     }
 }
 
+/// Returns the stable error for a command reserved for a later milestone.
 fn not_implemented(command: &'static str) -> Result<(), CliError> {
     Err(CliError::NotImplemented(command))
 }

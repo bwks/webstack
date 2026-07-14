@@ -25,7 +25,24 @@ application through the facade. Tests may invoke external processes even though
 production framework code may not.
 
 A source-policy test scans production crate sources and rejects process-launching
-APIs. Test directories are excluded from that restriction.
+APIs. A second source-policy check requires documentation on every production
+and generated function and method. Test directories and `#[cfg(test)]` modules
+are excluded from both production policies where appropriate.
+
+## Release Smoke Test
+
+Run the network-dependent Phase 1 acceptance check explicitly:
+
+```sh
+just smoke-release
+```
+
+The check generates an application, downloads and verifies its configured
+frontend tools, builds CSS and a release executable, and starts it from an
+isolated directory containing only the executable and `webstack.toml`. It then
+asserts that the root page, health response, compiled CSS, and htmx JavaScript
+are served successfully. It is intentionally excluded from the default test
+suite because it performs network downloads and a release build.
 
 Typed-error tests verify both stable display messages and retained source chains.
 HTTP milestones will test every `AppError` variant's status, safe response body,

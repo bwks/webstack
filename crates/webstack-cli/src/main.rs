@@ -4,6 +4,7 @@ use anyhow::Context;
 use webstack_core::observability::{self, LogFormat, ObservabilityConfig, ObservabilityError};
 
 #[tokio::main]
+/// Runs the Webstack CLI and maps its result to a process exit code.
 async fn main() -> ExitCode {
     match run_command().await {
         Ok(()) => ExitCode::SUCCESS,
@@ -14,12 +15,14 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Initializes diagnostics and executes the parsed CLI command.
 async fn run_command() -> anyhow::Result<()> {
     let cli = webstack_cli::Cli::parse_args();
     init_tracing(cli.verbosity()).context("could not initialize CLI tracing")?;
     cli.execute().await.context("webstack command failed")
 }
 
+/// Installs CLI tracing at the level selected by verbosity flags.
 fn init_tracing(verbosity: u8) -> Result<(), ObservabilityError> {
     observability::init(&ObservabilityConfig::new(
         verbosity_filter(verbosity),
@@ -27,6 +30,7 @@ fn init_tracing(verbosity: u8) -> Result<(), ObservabilityError> {
     ))
 }
 
+/// Maps CLI verbosity occurrences to a tracing filter.
 const fn verbosity_filter(verbosity: u8) -> &'static str {
     match verbosity {
         0 => "warn",

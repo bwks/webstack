@@ -8,6 +8,9 @@ check:
 test:
     cargo test --workspace --all-features
 
+smoke-release:
+    cargo test -p webstack-cli --test release_smoke -- --ignored --nocapture
+
 clippy:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -16,4 +19,3 @@ fmt:
 
 cli *args:
     cargo run -p webstack-cli -- {{args}}
-

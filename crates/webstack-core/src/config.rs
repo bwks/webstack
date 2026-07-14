@@ -46,6 +46,7 @@ impl Config {
         Self::load_file(Path::new(CONFIG_PATH))
     }
 
+    /// Loads, parses, overrides, and validates configuration from one path.
     fn load_file(path: &Path) -> Result<Self, ConfigError> {
         let source = fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_owned(),
@@ -60,6 +61,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Reads the supported secret environment overrides.
     fn apply_environment(&mut self) -> Result<(), ConfigError> {
         self.apply_environment_values(
             environment_value("R2_ACCOUNT_ID")?,
@@ -69,6 +71,7 @@ impl Config {
         Ok(())
     }
 
+    /// Applies supplied R2 values after TOML deserialization.
     fn apply_environment_values(
         &mut self,
         account_id: Option<String>,
@@ -86,6 +89,7 @@ impl Config {
         }
     }
 
+    /// Aggregates validation failures into Webstack's typed configuration error.
     fn validate(&self) -> Result<(), ConfigError> {
         Validate::validate(self).map_err(|report| ConfigError::Validation {
             issues: report
@@ -113,6 +117,7 @@ pub struct AssetsConfig {
 }
 
 impl Default for AssetsConfig {
+    /// Returns the frontend versions shipped by newly generated applications.
     fn default() -> Self {
         Self {
             tailwind_version: "4.3.1".to_owned(),
@@ -136,6 +141,7 @@ pub struct ServerConfig {
 }
 
 impl Default for ServerConfig {
+    /// Returns local, unprivileged server defaults.
     fn default() -> Self {
         Self {
             bind_addr: IpAddr::from([127, 0, 0, 1]),
@@ -171,6 +177,7 @@ pub struct TlsConfig {
 }
 
 impl Default for TlsConfig {
+    /// Returns disabled TLS defaults suitable for initial local development.
     fn default() -> Self {
         Self {
             mode: TlsMode::Disabled,
@@ -194,6 +201,7 @@ pub struct DatabaseConfig {
 }
 
 impl Default for DatabaseConfig {
+    /// Returns the conventional embedded database location and identifiers.
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("./data/surreal"),
@@ -213,6 +221,7 @@ pub struct AuthConfig {
 }
 
 impl Default for AuthConfig {
+    /// Returns one-week sessions with first-run admin bootstrapping enabled.
     fn default() -> Self {
         Self {
             session_ttl_hours: 168,
@@ -235,6 +244,7 @@ pub struct BackupConfig {
 }
 
 impl Default for BackupConfig {
+    /// Returns disabled backup defaults with the standard daily schedule.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -261,6 +271,7 @@ pub struct R2Config {
 }
 
 impl R2Config {
+    /// Returns the environment-supplied R2 credentials when present.
     #[must_use]
     pub const fn credentials(&self) -> Option<&R2Credentials> {
         self.credentials.as_ref()
@@ -268,6 +279,7 @@ impl R2Config {
 }
 
 impl Default for R2Config {
+    /// Returns empty R2 settings with the standard backup key prefix.
     fn default() -> Self {
         Self {
             account_id: String::new(),
@@ -294,11 +306,13 @@ pub struct ValidationIssue {
 }
 
 impl ValidationIssue {
+    /// Returns the configuration field associated with this issue.
     #[must_use]
     pub fn field(&self) -> &str {
         &self.field
     }
 
+    /// Returns the validation message for this issue.
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -306,6 +320,7 @@ impl ValidationIssue {
 }
 
 impl fmt::Display for ValidationIssue {
+    /// Formats one validation issue as its field and message.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: {}", self.field, self.message)
     }
@@ -331,12 +346,14 @@ pub enum ConfigError {
     Validation { issues: Vec<ValidationIssue> },
 }
 
+/// Validates a semantic-version string for Garde.
 fn semantic_version<Context>(value: &str, _context: &Context) -> garde::Result {
     semver::Version::parse(value)
         .map(|_| ())
         .map_err(|_| garde::Error::new("must be a semantic version such as 4.3.1"))
 }
 
+/// Reads one Unicode environment variable as an optional value.
 fn environment_value(name: &'static str) -> Result<Option<String>, ConfigError> {
     env::var_os(name)
         .map(|value| {
@@ -347,6 +364,7 @@ fn environment_value(name: &'static str) -> Result<Option<String>, ConfigError> 
         .transpose()
 }
 
+/// Rejects blank configuration strings for Garde.
 fn non_blank<Context>(value: &str, _context: &Context) -> garde::Result {
     if value.trim().is_empty() {
         Err(garde::Error::new("must not be empty"))
@@ -355,6 +373,7 @@ fn non_blank<Context>(value: &str, _context: &Context) -> garde::Result {
     }
 }
 
+/// Rejects empty configuration paths for Garde.
 fn nonempty_path<Context>(value: &Path, _context: &Context) -> garde::Result {
     if value.as_os_str().is_empty() {
         Err(garde::Error::new("must not be empty"))
@@ -363,6 +382,7 @@ fn nonempty_path<Context>(value: &Path, _context: &Context) -> garde::Result {
     }
 }
 
+/// Rejects blank secret values without exposing them in diagnostics.
 fn non_blank_secret<Context>(value: &SecretString, _context: &Context) -> garde::Result {
     if value.expose_secret().trim().is_empty() {
         Err(garde::Error::new("must not be empty"))

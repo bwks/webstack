@@ -49,6 +49,7 @@ where
         .into_response()
 }
 
+/// Encodes a SHA-256 byte array as lowercase hexadecimal.
 fn hex(bytes: [u8; 32]) -> String {
     let mut value = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

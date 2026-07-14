@@ -60,12 +60,14 @@ impl ObservabilityConfig {
         self.parsed_filter().map(|_| ())
     }
 
+    /// Parses the configured filter into a subscriber filter.
     fn parsed_filter(&self) -> Result<EnvFilter, ObservabilityError> {
         EnvFilter::try_new(&self.filter).map_err(ObservabilityError::InvalidFilter)
     }
 }
 
 impl Default for ObservabilityConfig {
+    /// Returns human-readable info-level tracing defaults.
     fn default() -> Self {
         Self::new("info", LogFormat::Pretty)
     }
@@ -83,6 +85,7 @@ pub enum ObservabilityError {
     AlreadyInitialized(#[source] tracing::subscriber::SetGlobalDefaultError),
 }
 
+/// Validates a tracing filter for Garde-derived configuration validation.
 fn valid_filter<Context>(value: &str, _context: &Context) -> garde::Result {
     EnvFilter::try_new(value)
         .map(|_| ())

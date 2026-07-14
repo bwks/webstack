@@ -1,7 +1,7 @@
 use std::{fs, path::Path, process::Command};
 
 use syn::{
-    Item, ItemImpl, Stmt, Type,
+    Attribute, Expr, ForeignItem, ImplItem, Item, ItemImpl, Lit, Meta, Stmt, TraitItem, Type,
     visit::{self, Visit},
 };
 use tempfile::TempDir;
@@ -83,6 +83,92 @@ fn assert_type_and_impl_order(items: &[Item], path: &Path) {
             _ => adjacent_type = None,
         }
     }
+}
+
+fn has_doc_comment(attributes: &[Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        if !attribute.path().is_ident("doc") {
+            return false;
+        }
+        let Meta::NameValue(meta) = &attribute.meta else {
+            return false;
+        };
+        let Expr::Lit(expression) = &meta.value else {
+            return false;
+        };
+        let Lit::Str(value) = &expression.lit else {
+            return false;
+        };
+        !value.value().trim().is_empty()
+    })
+}
+
+fn is_test_module(item: &syn::ItemMod) -> bool {
+    item.attrs.iter().any(|attribute| {
+        attribute.path().is_ident("cfg")
+            && matches!(&attribute.meta, Meta::List(meta) if meta.tokens.to_string() == "test")
+    })
+}
+
+fn assert_documented_functions(items: &[Item], path: &Path) {
+    for item in items {
+        match item {
+            Item::Fn(item) => assert!(
+                has_doc_comment(&item.attrs),
+                "{} has undocumented function {}",
+                path.display(),
+                item.sig.ident
+            ),
+            Item::Impl(item) => {
+                for implementation_item in &item.items {
+                    if let ImplItem::Fn(function) = implementation_item {
+                        assert!(
+                            has_doc_comment(&function.attrs),
+                            "{} has undocumented method {}",
+                            path.display(),
+                            function.sig.ident
+                        );
+                    }
+                }
+            }
+            Item::Trait(item) => {
+                for trait_item in &item.items {
+                    if let TraitItem::Fn(function) = trait_item {
+                        assert!(
+                            has_doc_comment(&function.attrs),
+                            "{} has undocumented trait method {}",
+                            path.display(),
+                            function.sig.ident
+                        );
+                    }
+                }
+            }
+            Item::ForeignMod(item) => {
+                for foreign_item in &item.items {
+                    if let ForeignItem::Fn(function) = foreign_item {
+                        assert!(
+                            has_doc_comment(&function.attrs),
+                            "{} has undocumented foreign function {}",
+                            path.display(),
+                            function.sig.ident
+                        );
+                    }
+                }
+            }
+            Item::Mod(item) if !is_test_module(item) => {
+                if let Some((_, items)) = &item.content {
+                    assert_documented_functions(items, path);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn assert_documented_rust_file(path: &Path) {
+    let source = fs::read_to_string(path).expect("Rust source");
+    let syntax = syn::parse_file(&source).expect("valid Rust source");
+    assert_documented_functions(&syntax.items, path);
 }
 
 fn assert_success(output: &std::process::Output) {
@@ -369,4 +455,46 @@ fn types_are_module_scoped_and_impls_are_adjacent() {
             }
         }
     }
+}
+
+#[test]
+fn production_and_generated_functions_are_documented() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let mut pending = vec![workspace.join("crates"), workspace.join("examples")];
+
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory).expect("Rust source directory") {
+            let path = entry.expect("source entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "tests") {
+                    continue;
+                }
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                assert_documented_rust_file(&path);
+            }
+        }
+    }
+
+    let temp = TempDir::new().expect("temporary directory");
+    let target = temp.path().join("documented-app");
+    let output = webstack()
+        .args(["new", "documented-app"])
+        .arg("--directory")
+        .arg(&target)
+        .output()
+        .expect("CLI should run");
+    assert_success(&output);
+    assert_documented_rust_file(&target.join("src/main.rs"));
+    assert_documented_rust_file(&target.join("build.rs"));
+}
+
+#[test]
+#[should_panic(expected = "undocumented function undocumented")]
+fn documentation_policy_rejects_an_undocumented_function() {
+    let syntax = syn::parse_file("fn undocumented() {}").expect("valid Rust source");
+    assert_documented_functions(&syntax.items, Path::new("undocumented.rs"));
 }
