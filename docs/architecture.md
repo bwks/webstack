@@ -10,14 +10,16 @@ while `webstack new` will generate independently owned application repositories.
 
 Generated applications consume the `webstack` facade. Lifecycle-independent
 configuration and observability live in `webstack-core`; Axum composition,
-typed state, health, and graceful shutdown live in `webstack-web`. The facade
-re-exports their supported APIs so generated applications do not depend on
-internal crates.
+typed state, health, and graceful shutdown live in `webstack-web`;
+`webstack-db` owns the embedded connection, migration runner, and write retry
+policy. The facade re-exports their supported APIs so generated applications do
+not depend on internal crates.
 
 Application routes are registered through `Application::builder().route(...)`.
 The framework reserves `/healthz`; application handlers can extract
-`AppState` to read the loaded Webstack configuration. Application-owned
-configuration and state remain outside the framework configuration contract.
+`AppState` to read the loaded Webstack configuration and clone the shared
+database handle. Application-owned configuration and state remain outside the
+framework configuration contract.
 
 The `webstack-cli` package produces the `webstack` executable. CLI scaffolds will
 be embedded into that executable so generation does not depend on the framework
@@ -65,9 +67,9 @@ flowchart TB
             Assets["Embedded CSS, JS,<br/>images and htmx"]:::implemented
         end
 
-        State["Shared AppState<br/>Webstack Config"]:::implemented
-        Database["Embedded SurrealDB<br/>RocksDB backend"]:::planned
-        Migrations["Embedded startup<br/>migrations"]:::planned
+        State["Shared AppState<br/>Config + database"]:::implemented
+        Database["Embedded SurrealDB<br/>RocksDB backend"]:::implemented
+        Migrations["Runtime ./migrations<br/>startup history"]:::implemented
         Sessions["SurrealDB session store"]:::planned
         Scheduler["Backup and cleanup<br/>scheduler"]:::planned
         Export["Logical export<br/>SURQL → gzip"]:::planned
@@ -121,9 +123,10 @@ flowchart TB
 
 Each generated application is one deployable binary. It creates exactly one
 embedded SurrealDB instance, and every handler receives clones of that same
-thread-safe handle. Assets, templates, and migrations compile into release
-binaries. Live RocksDB files are never copied for backup or opened by a second
-process.
+thread-safe handle. Assets and templates compile into release binaries. The
+complete immutable migration history is deployed as `./migrations` and is
+validated before HTTP binds. Live RocksDB files are never copied for backup or
+opened by a second process.
 
 ## Error Boundaries
 

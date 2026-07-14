@@ -15,9 +15,11 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
+webstack-db = { path = "../webstack-db" }
 
 [dev-dependencies]
 serde_json.workspace = true
+surrealdb = { workspace = true, features = ["kv-mem"] }
 tempfile.workspace = true
 tower.workspace = true
 

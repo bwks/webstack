@@ -90,7 +90,7 @@ fn assert_ok_response(response: &str, expected: &str) {
 
 #[test]
 #[ignore = "downloads frontend tools and performs a generated application release build"]
-fn generated_release_runs_with_only_binary_and_config() {
+fn generated_release_runs_with_binary_config_and_migrations() {
     let temp = TempDir::new().expect("temporary directory");
     let application = temp.path().join("phase-one-smoke");
     let deployment = temp.path().join("deployment");
@@ -147,15 +147,26 @@ fn generated_release_runs_with_only_binary_and_config() {
         .expect("generated configuration")
         .replace("http_port = 8080", &format!("http_port = {port}"));
     fs::write(deployment.join("webstack.toml"), config).expect("deployment configuration");
+    fs::create_dir(deployment.join("migrations")).expect("deployment migrations directory");
+    fs::copy(
+        application.join("migrations/0001_initialize.surql"),
+        deployment.join("migrations/0001_initialize.surql"),
+    )
+    .expect("migration should copy");
 
     let mut deployed_files = fs::read_dir(&deployment)
         .expect("deployment directory")
         .map(|entry| entry.expect("deployment entry").file_name())
         .collect::<Vec<_>>();
     deployed_files.sort();
-    assert_eq!(deployed_files.len(), 2);
+    assert_eq!(deployed_files.len(), 3);
     assert!(deployed_binary.is_file());
     assert!(deployment.join("webstack.toml").is_file());
+    assert!(
+        deployment
+            .join("migrations/0001_initialize.surql")
+            .is_file()
+    );
 
     let child = Command::new(&deployed_binary)
         .current_dir(&deployment)

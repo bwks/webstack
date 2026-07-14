@@ -1,7 +1,10 @@
-use std::{future::Future, net::SocketAddr, sync::Arc};
+use std::{future::Future, net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{
     Json, Router,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
     routing::{MethodRouter, get},
 };
 use serde::Serialize;
@@ -11,6 +14,7 @@ use webstack_core::{
     config::{Config, ConfigError, TlsMode},
     observability::{self, ObservabilityError},
 };
+use webstack_db::{Database, DatabaseError};
 
 use rust_embed::RustEmbed;
 
@@ -95,6 +99,14 @@ impl ApplicationBuilder {
         validate_runtime_features(&config)?;
         observability::init(&config.observability)?;
 
+        let database = webstack_db::connect(
+            &config.database.data_dir,
+            &config.database.namespace,
+            &config.database.database,
+        )
+        .await?;
+        webstack_db::migrate(&database, Path::new("./migrations")).await?;
+
         let address = SocketAddr::new(config.server.bind_addr, config.server.http_port);
         let listener = TcpListener::bind(address)
             .await
@@ -104,21 +116,22 @@ impl ApplicationBuilder {
             .map_err(|source| ApplicationError::Bind { address, source })?;
         tracing::info!(%local_address, "HTTP server listening");
 
-        let router = self.into_router(Arc::new(config));
+        let router = self.into_router(Arc::new(config), database);
         serve(listener, router, shutdown_signal()).await
     }
 
     /// Converts the builder into a stateful Axum router with framework routes.
-    fn into_router(self, config: Arc<Config>) -> Router {
+    fn into_router(self, config: Arc<Config>, database: Database) -> Router {
         self.router
             .route(HEALTH_PATH, get(health))
-            .with_state(AppState { config })
+            .with_state(AppState { config, database })
     }
 }
 
 /// Framework state available to application handlers through Axum `State`.
 pub struct AppState {
     config: Arc<Config>,
+    database: Database,
 }
 
 impl Clone for AppState {
@@ -126,6 +139,7 @@ impl Clone for AppState {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
+            database: self.database.clone(),
         }
     }
 }
@@ -135,6 +149,12 @@ impl AppState {
     #[must_use]
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Returns the application's cheaply cloneable shared database handle.
+    #[must_use]
+    pub const fn database(&self) -> &Database {
+        &self.database
     }
 }
 
@@ -156,6 +176,8 @@ pub enum ApplicationError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Observability(#[from] ObservabilityError),
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
     #[error("cannot bind HTTP listener at {address}")]
     Bind {
         address: SocketAddr,
@@ -166,9 +188,27 @@ pub enum ApplicationError {
     Serve(#[source] std::io::Error),
 }
 
-/// Returns the framework's minimal health response.
-async fn health() -> Json<Health> {
-    Json(Health { status: "ok" })
+/// Probes the embedded database and reports application readiness.
+async fn health(State(state): State<AppState>) -> Response {
+    match state.database.query("RETURN true;").await {
+        Ok(response) => match response.check() {
+            Ok(_) => Json(Health { status: "ok" }).into_response(),
+            Err(error) => unavailable_health(&error),
+        },
+        Err(error) => unavailable_health(&error),
+    }
+}
+
+/// Logs a database health failure and returns a detail-free readiness response.
+fn unavailable_health(error: &impl std::fmt::Display) -> Response {
+    tracing::error!(%error, "database health probe failed");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(Health {
+            status: "unavailable",
+        }),
+    )
+        .into_response()
 }
 
 /// Rejects configured runtime features that belong to later milestones.
@@ -232,6 +272,7 @@ mod tests {
         http::{Request, StatusCode},
         routing::get,
     };
+    use surrealdb::{Surreal, engine::local::Mem};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::{TcpListener, TcpStream},
@@ -239,8 +280,19 @@ mod tests {
     };
     use tower::ServiceExt;
     use webstack_core::config::{Config, TlsMode};
+    use webstack_db::Database;
 
     use super::{AppState, Application, ApplicationError, serve, validate_runtime_features};
+
+    async fn test_database() -> Database {
+        let database = Surreal::new::<Mem>(()).await.expect("in-memory database");
+        database
+            .use_ns("test")
+            .use_db("test")
+            .await
+            .expect("test namespace");
+        database
+    }
 
     #[tokio::test]
     async fn health_is_minimal_json_and_webstack_state_is_available() {
@@ -248,11 +300,20 @@ mod tests {
             .route(
                 "/",
                 get(|State(state): State<AppState>| async move {
-                    state.config().server.http_port.to_string()
+                    state
+                        .database()
+                        .query("RETURN $port;")
+                        .bind(("port", state.config().server.http_port))
+                        .await
+                        .expect("state database")
+                        .take::<Option<u16>>(0)
+                        .expect("port result")
+                        .expect("port")
+                        .to_string()
                 }),
             )
             .expect("application route")
-            .into_router(Arc::new(Config::default()));
+            .into_router(Arc::new(Config::default()), test_database().await);
 
         let response = router
             .clone()
@@ -284,6 +345,29 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn unavailable_database_health_is_detail_free() {
+        let router = Application::builder().into_router(
+            Arc::new(Config::default()),
+            Surreal::<surrealdb::engine::local::Db>::init(),
+        );
+        let response = router
+            .oneshot(
+                Request::get("/healthz")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("health response");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+            "{\"status\":\"unavailable\"}"
+        );
+    }
+
     #[test]
     fn deferred_features_fail_clearly() {
         let mut config = Config::default();
@@ -305,7 +389,8 @@ mod tests {
     async fn real_listener_serves_and_stops_on_injected_shutdown() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
         let address = listener.local_addr().expect("address");
-        let router = Application::builder().into_router(Arc::new(Config::default()));
+        let router =
+            Application::builder().into_router(Arc::new(Config::default()), test_database().await);
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
         let server = tokio::spawn(serve(listener, router, async move {
             let _result = shutdown_receiver.await;

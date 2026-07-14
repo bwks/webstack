@@ -231,7 +231,7 @@ fn new_generates_an_application_owned_project() {
         "assets/images/.gitkeep",
         "templates/base.html",
         "templates/pages/index.html",
-        "migrations/.gitkeep",
+        "migrations/0001_initialize.surql",
         "docs/README.md",
         "tests/application.rs",
     ] {
@@ -248,6 +248,8 @@ fn new_generates_an_application_owned_project() {
     assert!(main.contains("Application::builder()"));
     assert!(!main.contains("ApplicationSettings"));
     assert!(main.contains(".assets::<Assets>()?"));
+    assert!(!main.contains("struct Migrations"));
+    assert!(!main.contains(".migrations::<"));
     assert!(main.contains(".route(\"/\", get(index))?"));
     assert!(main.contains(".run()"));
     assert!(!main.contains("webstack::observability::init"));
@@ -268,6 +270,85 @@ fn new_generates_an_application_owned_project() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));
     assert!(stdout.contains("just dev"));
+}
+
+#[test]
+fn generate_migration_numbers_valid_history_and_prints_the_path() {
+    let temp = TempDir::new().expect("temporary directory");
+    let migrations = temp.path().join("migrations");
+    fs::create_dir(&migrations).expect("migrations directory");
+    let initial = webstack()
+        .args(["generate", "migration", "initialize"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert_success(&initial);
+    assert!(migrations.join("0001_initialize.surql").is_file());
+    fs::write(migrations.join("0004_add_items.surql"), "-- Items\n").expect("migration");
+
+    let output = webstack()
+        .args(["generate", "migration", "add_roles"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert_success(&output);
+    let target = migrations.join("0005_add_roles.surql");
+    assert!(target.is_file());
+    assert_eq!(
+        fs::read_to_string(&target).expect("generated migration"),
+        "-- Migration: add_roles\n\n"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains(&target.display().to_string()));
+}
+
+#[test]
+fn generate_migration_rejects_invalid_inputs_and_history() {
+    let temp = TempDir::new().expect("temporary directory");
+    let migrations = temp.path().join("migrations");
+    fs::create_dir(&migrations).expect("migrations directory");
+
+    let invalid_name = webstack()
+        .args(["generate", "migration", "Bad-name"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert!(!invalid_name.status.success());
+    assert!(String::from_utf8_lossy(&invalid_name.stderr).contains("snake_case"));
+
+    fs::write(migrations.join("bad.surql"), "-- malformed\n").expect("migration");
+    let malformed = webstack()
+        .args(["generate", "migration", "add_roles"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert!(!malformed.status.success());
+    assert!(String::from_utf8_lossy(&malformed.stderr).contains("invalid existing migration"));
+}
+
+#[test]
+fn generate_migration_rejects_name_collisions_and_overflow() {
+    let temp = TempDir::new().expect("temporary directory");
+    let migrations = temp.path().join("migrations");
+    fs::create_dir(&migrations).expect("migrations directory");
+    fs::write(migrations.join("0007_add_roles.surql"), "-- Existing\n").expect("migration");
+
+    let collision = webstack()
+        .args(["generate", "migration", "add_roles"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert!(!collision.status.success());
+    assert!(String::from_utf8_lossy(&collision.stderr).contains("already exists"));
+
+    fs::remove_file(migrations.join("0007_add_roles.surql")).expect("remove migration");
+    fs::write(migrations.join("9999_final.surql"), "-- Final\n").expect("migration");
+    let overflow = webstack()
+        .args(["generate", "migration", "another"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+    assert!(!overflow.status.success());
+    assert!(String::from_utf8_lossy(&overflow.stderr).contains("overflow"));
 }
 
 #[test]

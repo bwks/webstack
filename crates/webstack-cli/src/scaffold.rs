@@ -109,8 +109,6 @@ async fn main() -> anyhow::Result<()> {
 fn main() {
     println!("cargo::rerun-if-changed=assets");
     println!("cargo::rerun-if-changed=templates");
-    println!("cargo::rerun-if-changed=migrations");
-
     let release = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
     if release && !std::path::Path::new("assets/css/app.css").is_file() {
         panic!("assets/css/app.css is missing; run `just css` before a release build");
@@ -269,8 +267,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "migrations/.gitkeep",
-        contents: "",
+        path: "migrations/0001_initialize.surql",
+        contents: "-- Initial application migration.\n",
     },
     ScaffoldFile {
         path: "docs/README.md",

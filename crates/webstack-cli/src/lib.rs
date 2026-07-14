@@ -2,6 +2,7 @@
 
 mod assets;
 mod generator;
+mod migration;
 mod scaffold;
 mod tools;
 
@@ -13,6 +14,7 @@ use thiserror::Error;
 
 pub use assets::AssetError;
 pub use generator::GenerateError;
+pub use migration::MigrationError;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -108,6 +110,10 @@ pub enum CliError {
     #[error(transparent)]
     Assets(#[from] AssetError),
 
+    /// Migration generation failed.
+    #[error(transparent)]
+    Migration(#[from] MigrationError),
+
     /// The requested command is part of a later milestone.
     #[error("webstack {0}: not implemented yet")]
     NotImplemented(&'static str),
@@ -158,9 +164,18 @@ async fn execute(command: Command) -> Result<(), CliError> {
                 Ok(())
             }
         },
-        Command::Generate { command } => not_implemented(match command {
-            GenerateCommand::Migration { name: _ } => "generate migration",
-        }),
+        Command::Generate { command } => match command {
+            GenerateCommand::Migration { name } => {
+                let root =
+                    std::env::current_dir().map_err(|source| MigrationError::ReadDirectory {
+                        path: PathBuf::from("."),
+                        source,
+                    })?;
+                let path = migration::generate(&root, &name)?;
+                println!("{}", path.display());
+                Ok(())
+            }
+        },
         Command::Doctor => not_implemented("doctor"),
     }
 }

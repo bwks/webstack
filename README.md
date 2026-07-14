@@ -9,10 +9,10 @@ for framework documentation.
 
 ## Current Status
 
-Phase 1 is complete. The framework workspace, `webstack new` application
-generator, typed configuration, plain-HTTP runtime, Askama templates, and
-embedded frontend assets are implemented. Generated applications own their root
-route while Webstack reserves `/healthz` and `/static`.
+Phases 1 and 2 are complete. Alongside the application generator, typed
+configuration, plain-HTTP runtime, templates, and embedded assets, Webstack now
+opens one embedded RocksDB-backed SurrealDB instance, applies application-owned
+migrations before binding HTTP, and includes database readiness in `/healthz`.
 
 Generate an application from a local build with:
 
@@ -30,4 +30,5 @@ cargo test --workspace --all-features
 
 The opt-in `just smoke-release` check downloads the configured frontend tools,
 builds a generated application in release mode, and verifies it from an
-isolated deployment directory containing only its binary and `webstack.toml`.
+isolated deployment directory containing its binary, `webstack.toml`, and the
+complete runtime `migrations/` directory.

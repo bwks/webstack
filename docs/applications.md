@@ -59,15 +59,22 @@ Webstack owns only this framework configuration. Applications may load and
 manage their own configuration independently.
 
 Applications own `/` and register routes fluently. Webstack owns `/healthz`,
-which currently reports process health without querying a database. TLS and
-backup settings are parsed now but must remain disabled until their runtime
-milestones are implemented.
+which reports readiness only after a trivial query succeeds against the shared
+database. TLS and backup settings are parsed now but must remain disabled until
+their runtime milestones are implemented.
 
 ## Layout
 
 - `src/` contains the composition root and application features.
 - `assets/css`, `assets/js`, and `assets/images` contain browser assets.
-- `templates/` and `migrations/` are application-owned compile-time inputs.
+- `templates/` are application-owned compile-time inputs.
+- `migrations/` is the application-owned runtime history deployed beside the binary.
 - `docs/` describes application-specific architecture and operations.
 - `tests/` verifies the application through supported facade APIs.
 - `tools/` is reserved for downloaded build tools and is not an asset directory.
+
+Create a migration from the application root with
+`webstack generate migration <lowercase_snake_case_name>`. Webstack validates
+the existing history and creates the next four-digit `.surql` file atomically.
+Every deployment must include the complete `migrations/` directory; startup
+rejects a missing directory, changed applied migration, or incomplete history.

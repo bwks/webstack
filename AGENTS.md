@@ -228,10 +228,10 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   `just release` (css → `cargo build --release`); `bacon.toml` with run/clippy/test jobs
 - **Done when:** `just dev` serves a styled page over plain HTTP, and
   `just smoke-release` proves a release binary serves its compiled templates,
-  CSS, and htmx from an isolated directory containing only the binary and the
-  required `webstack.toml`.
+  CSS, and htmx from an isolated directory containing the binary, the required
+  `webstack.toml`, and the complete runtime `migrations/` history.
 
-### Phase 2: TLS
+### Phase 3: TLS
 - `tls.rs` with the three-mode switch from config:
   - `self_signed`: `rcgen::generate_simple_self_signed(["localhost"])` at startup,
     cert/key fed to rustls config in memory — no files
@@ -243,14 +243,6 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - **Done when:** dev serves https://localhost:8443 with self-signed cert;
   acme mode verified against LE staging (document the DNS prerequisite);
   redirect listener works.
-
-### Phase 3: Database
-- `db.rs`: open embedded Surreal at `data_dir`, select ns/db
-- Migration runner: apply `migrations/*.surql` in filename order, record applied
-  names in `_migrations` table, idempotent across restarts
-- Write-retry helper for optimistic conflicts
-- `/healthz` extended with a trivial DB query
-- **Done when:** boot applies migrations idempotently; restart-safe.
 
 ### Phase 4: Auth (authentication + authorisation)
 - `0001_init.surql`: user table (username unique, argon2id password_hash,
@@ -277,6 +269,14 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - **Done when:** CRUD works with no full page reloads; pattern documented in
   a short CONVENTIONS.md.
 
+### Phase 2: Database
+- `db.rs`: open embedded Surreal at `data_dir`, select ns/db
+- Migration runner: apply `migrations/*.surql` in filename order, record applied
+  names in `_migrations` table, idempotent across restarts
+- Write-retry helper for optimistic conflicts
+- `/healthz` extended with a trivial DB query
+- **Done when:** boot applies migrations idempotently; restart-safe.
+
 ### Phase 6: Backup to R2
 - `backup.rs`: SurrealDB export (Rust SDK export on the embedded instance) to a
   temp file → gzip → upload to R2 key `{prefix}{iso8601-utc}.surql.gz`
@@ -298,8 +298,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Release profile: `lto = true`, `codegen-units = 1`, `strip = true`
 - systemd unit example in README (plain user service — ports 8443/8080 need no
   capabilities; note firewall NAT 443→8443 as an option)
-- CI check for the single-binary claim: build release, copy binary alone to an
-  empty dir, run with self_signed mode, assert /static/app.css and
+- CI check for the single-binary claim: build release, copy the binary,
+  `webstack.toml`, and `migrations/` to an empty dir, run with self_signed mode,
+  assert /static/app.css and
   /static/htmx.min.js return 200
 - Dockerfile (debian-slim or distroless): image = binary only + mounted data volume
 

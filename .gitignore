@@ -4,3 +4,4 @@
 /data/
 /webstack.toml
 /graphify-out/
+/examples/**/data/

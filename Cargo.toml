@@ -37,6 +37,7 @@ garde = { version = "0.23.0", features = ["derive"] }
 mime_guess = "2.0.5"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 rust-embed = "8.11.0"
+surrealdb = { version = "=3.2.1", default-features = false, features = ["kv-rocksdb"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
 semver = "1.0.27"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -45,7 +46,7 @@ sha2 = "0.10.9"
 syn = { version = "2.0.117", features = ["full", "visit"] }
 tempfile = "3.27.0"
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tokio = { version = "1.52.3", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "1.1.2"
 tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.44"

@@ -11,9 +11,11 @@ askama.workspace = true
 askama_web.workspace = true
 serde.workspace = true
 rust-embed.workspace = true
+surrealdb.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
+webstack-db = { path = "../webstack-db" }
 webstack-web = { path = "../webstack-web" }
 
 [lints]

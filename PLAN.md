@@ -19,15 +19,17 @@ records delivery status.
 
 ## Next
 
-### Phase 2: In-Process TLS
+### Phase 2: Embedded Database
 
-Implement disabled, ephemeral self-signed, and ACME TLS modes. Add the optional
-HTTP-to-HTTPS redirect listener, focused process tests, and deployment guidance.
+Open one embedded SurrealDB instance, select the configured namespace and
+database, apply runtime `./migrations` files idempotently, add bounded retries for
+optimistic write conflicts, and extend `/healthz` with a trivial database query.
 
 ## Later
 
-1. Embedded SurrealDB, migrations, and write-conflict retries
-2. Session authentication, RBAC, CSRF, and admin bootstrap
-3. Reusable htmx full-page/partial patterns and a reference CRUD feature
+
+1. Session authentication, RBAC, CSRF, and admin bootstrap
+2. Reusable htmx full-page/partial patterns and a reference CRUD feature
+3. In-process disabled, self-signed, and ACME TLS modes with HTTP redirects
 4. Logical SurrealDB backup, R2 retention, and restore
 5. Runtime hardening, broader integration coverage, and deployment artifacts
