@@ -2,9 +2,9 @@ use std::{convert::Infallible, future::Future, net::SocketAddr, path::Path, sync
 
 use axum::{
     Extension, Json, Router,
-    extract::State,
+    extract::{Request, State},
     http::StatusCode,
-    middleware,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{MethodRouter, get},
 };
@@ -23,6 +23,11 @@ use webstack_core::{
 };
 use webstack_db::{Database, DatabaseError};
 
+use crate::{
+    error::{ErrorMarker, ErrorRenderer, ErrorView, render_error},
+    htmx::HxRequest,
+};
+
 use rust_embed::RustEmbed;
 
 const HEALTH_PATH: &str = "/healthz";
@@ -40,6 +45,7 @@ impl Application {
             route_count: 0,
             assets_registered: false,
             auth_pages_registered: false,
+            error_renderer: None,
         }
     }
 }
@@ -50,6 +56,7 @@ pub struct ApplicationBuilder {
     route_count: usize,
     assets_registered: bool,
     auth_pages_registered: bool,
+    error_renderer: Option<ErrorRenderer>,
 }
 
 impl ApplicationBuilder {
@@ -154,6 +161,24 @@ impl ApplicationBuilder {
         Ok(self)
     }
 
+    /// Registers application-owned full-page and htmx error rendering.
+    ///
+    /// Returning `None` from the renderer selects the safe framework fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApplicationError::ErrorRendererAlreadyRegistered`] when called twice.
+    pub fn error_renderer<F>(mut self, renderer: F) -> Result<Self, ApplicationError>
+    where
+        F: Fn(&ErrorView) -> Option<String> + Send + Sync + 'static,
+    {
+        if self.error_renderer.is_some() {
+            return Err(ApplicationError::ErrorRendererAlreadyRegistered);
+        }
+        self.error_renderer = Some(Arc::new(renderer));
+        Ok(self)
+    }
+
     /// Returns the number of application-owned routes for framework tests.
     #[doc(hidden)]
     #[must_use]
@@ -199,6 +224,7 @@ impl ApplicationBuilder {
 
     /// Converts the builder into a stateful Axum router with framework routes.
     fn into_router(self, config: Arc<Config>, database: Database) -> Router {
+        let error_renderer = self.error_renderer.clone();
         let store = SurrealSessionStore::new(database.clone());
         let session_ttl =
             time::Duration::hours(i64::try_from(config.auth.session_ttl_hours).unwrap_or(i64::MAX));
@@ -219,6 +245,9 @@ impl ApplicationBuilder {
             .with_state(AppState { config, database })
             .layer(Extension(runtime))
             .layer(auth_layer)
+            .layer(middleware::from_fn(move |request, next| {
+                render_application_error(request, next, error_renderer.clone())
+            }))
     }
 }
 
@@ -266,6 +295,8 @@ pub enum ApplicationError {
     AssetsAlreadyRegistered,
     #[error("authentication pages have already been registered")]
     AuthPagesAlreadyRegistered,
+    #[error("an application error renderer has already been registered")]
+    ErrorRendererAlreadyRegistered,
     #[error("role {0:?} must be lowercase snake_case and begin with a letter")]
     InvalidRole(String),
     #[error("{0} support is not implemented yet; disable it in configuration")]
@@ -286,6 +317,21 @@ pub enum ApplicationError {
     },
     #[error("HTTP server failed")]
     Serve(#[source] std::io::Error),
+}
+
+/// Re-renders only responses explicitly marked by [`crate::AppError`].
+async fn render_application_error(
+    request: Request,
+    next: Next,
+    renderer: Option<ErrorRenderer>,
+) -> Response {
+    let is_htmx = HxRequest::from_headers(request.headers()).is_htmx();
+    let response = next.run(request).await;
+    let Some(marker) = response.extensions().get::<ErrorMarker>() else {
+        return response;
+    };
+    let view = marker.0.with_htmx(is_htmx);
+    render_error(&view, renderer.as_ref())
 }
 
 /// Probes the embedded database and reports application readiness.
@@ -410,6 +456,7 @@ mod tests {
     use webstack_db::Database;
 
     use super::{AppState, Application, ApplicationError, serve, validate_runtime_features};
+    use crate::AppError;
 
     async fn test_database() -> Database {
         let database = Surreal::new::<Mem>(()).await.expect("in-memory database");
@@ -556,6 +603,8 @@ mod tests {
                 .expect("protected route")
                 .role_route("/admin", "admin", get(|| async { "admin" }))
                 .expect("role route")
+                .route("/unsafe", post(|| async { "changed" }))
+                .expect("unsafe route")
                 .into_router(Arc::new(config), database);
 
         let login_page = router
@@ -578,7 +627,7 @@ mod tests {
             .oneshot(
                 Request::post("/login")
                     .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .header(header::COOKIE, cookies)
+                    .header(header::COOKIE, &cookies)
                     .body(Body::from(form))
                     .expect("login request"),
             )
@@ -587,6 +636,22 @@ mod tests {
         assert_eq!(login.status(), StatusCode::SEE_OTHER);
         assert_eq!(login.headers()[header::LOCATION], "/");
         let authenticated_cookies = response_cookies(&login);
+
+        let unsafe_form = router
+            .clone()
+            .oneshot(
+                Request::post("/unsafe")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        header::COOKIE,
+                        format!("{cookies}; {authenticated_cookies}"),
+                    )
+                    .body(Body::from(format!("_csrf={csrf}")))
+                    .expect("unsafe form request"),
+            )
+            .await
+            .expect("unsafe form response");
+        assert_eq!(unsafe_form.status(), StatusCode::OK);
 
         let account = router
             .clone()
@@ -648,6 +713,146 @@ mod tests {
             .await
             .expect("csrf response");
         assert_eq!(csrf_failure.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn application_errors_preserve_status_select_protocol_and_redact_sources() {
+        let router = Application::builder()
+            .route(
+                "/bad",
+                get(|| async { Err::<(), _>(AppError::bad_request("Bad <input>.")) }),
+            )
+            .expect("bad route")
+            .route(
+                "/forbidden",
+                get(|| async { Err::<(), _>(AppError::forbidden("No access.")) }),
+            )
+            .expect("forbidden route")
+            .route(
+                "/missing",
+                get(|| async { Err::<(), _>(AppError::not_found("Missing.")) }),
+            )
+            .expect("missing route")
+            .route(
+                "/conflict",
+                get(|| async { Err::<(), _>(AppError::conflict("Changed.")) }),
+            )
+            .expect("conflict route")
+            .route(
+                "/validation",
+                get(|| async { Err::<(), _>(AppError::validation("Invalid.")) }),
+            )
+            .expect("validation route")
+            .route(
+                "/internal",
+                get(|| async {
+                    Err::<(), _>(AppError::internal(
+                        "test operation",
+                        std::io::Error::other("secret database detail"),
+                    ))
+                }),
+            )
+            .expect("internal route")
+            .into_router(Arc::new(Config::default()), test_database().await);
+        let cases = [
+            ("/bad", StatusCode::BAD_REQUEST),
+            ("/forbidden", StatusCode::FORBIDDEN),
+            ("/missing", StatusCode::NOT_FOUND),
+            ("/conflict", StatusCode::CONFLICT),
+            ("/validation", StatusCode::UNPROCESSABLE_ENTITY),
+            ("/internal", StatusCode::INTERNAL_SERVER_ERROR),
+        ];
+        for (path, status) in cases {
+            let response = router
+                .clone()
+                .oneshot(Request::get(path).body(Body::empty()).expect("request"))
+                .await
+                .expect("error response");
+            assert_eq!(response.status(), status);
+            let body = String::from_utf8(
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("error body")
+                    .to_vec(),
+            )
+            .expect("UTF-8 error body");
+            assert!(body.starts_with("<!doctype html>"), "{body}");
+            assert!(!body.contains("secret database detail"), "{body}");
+        }
+
+        let partial = router
+            .oneshot(
+                Request::get("/bad")
+                    .header("hx-request", "true")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("partial response");
+        let body = String::from_utf8(
+            to_bytes(partial.into_body(), usize::MAX)
+                .await
+                .expect("partial body")
+                .to_vec(),
+        )
+        .expect("UTF-8 partial body");
+        assert!(body.starts_with("<div class=\"alert"), "{body}");
+        assert!(body.contains("Bad &#60;input&#62;."), "{body}");
+        assert!(!body.contains("Bad <input>."), "{body}");
+    }
+
+    #[tokio::test]
+    async fn custom_error_renderer_can_render_or_select_the_framework_fallback() {
+        let custom = Application::builder()
+            .error_renderer(|view| {
+                Some(format!(
+                    "custom:{}:{}",
+                    view.status().as_u16(),
+                    view.is_htmx()
+                ))
+            })
+            .expect("custom renderer")
+            .route(
+                "/error",
+                get(|| async { Err::<(), _>(AppError::not_found("Missing.")) }),
+            )
+            .expect("error route")
+            .into_router(Arc::new(Config::default()), test_database().await);
+        let response = custom
+            .oneshot(
+                Request::get("/error")
+                    .header("hx-request", "true")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("custom response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("custom body"),
+            "custom:404:true"
+        );
+
+        let fallback = Application::builder()
+            .error_renderer(|_view| None)
+            .expect("fallback renderer")
+            .route(
+                "/error",
+                get(|| async { Err::<(), _>(AppError::conflict("Try again.")) }),
+            )
+            .expect("error route")
+            .into_router(Arc::new(Config::default()), test_database().await);
+        let response = fallback
+            .oneshot(Request::get("/error").body(Body::empty()).expect("request"))
+            .await
+            .expect("fallback response");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("fallback body");
+        assert!(body.starts_with(b"<!doctype html>"));
     }
 
     #[test]

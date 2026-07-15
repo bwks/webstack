@@ -5415,6 +5415,7 @@ dependencies = [
  "axum",
  "axum-login",
  "base64",
+ "form_urlencoded",
  "rand 0.8.7",
  "serde",
  "serde_json",
@@ -5485,6 +5486,9 @@ name = "webstack-demo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askama",
+ "askama_web",
+ "rust-embed",
  "webstack",
 ]
 
@@ -5496,6 +5500,7 @@ version = "0.1.0"
 name = "webstack-web"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "axum",
  "axum-login",
  "mime_guess",

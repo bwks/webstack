@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf};
 
-use surrealdb::types::SurrealValue;
+use surrealdb::types::{RecordId, RecordIdKey, SurrealValue};
 use tempfile::TempDir;
 use webstack_db::{Database, DatabaseError, connect, migrate};
 
@@ -17,6 +17,17 @@ struct Sequence {
 #[derive(Debug, SurrealValue)]
 struct Count {
     count: usize,
+}
+
+#[derive(Debug, SurrealValue)]
+struct ItemName {
+    name: String,
+}
+
+#[derive(Debug, SurrealValue)]
+struct DemoItem {
+    id: RecordId,
+    name: String,
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -104,6 +115,67 @@ async fn migrations_apply_in_order_and_are_restart_idempotent() {
         .expect("ledger query");
     let counts: Vec<Count> = response.take(0).expect("count");
     assert_eq!(counts[0].count, 2);
+}
+
+#[tokio::test]
+async fn demo_migrations_create_a_working_items_schema() {
+    let directory = TempDir::new().expect("temporary directory");
+    let database = connect(directory.path(), "demo", "items")
+        .await
+        .expect("database");
+    let migrations =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/demo/migrations");
+    migrate(&database, &migrations)
+        .await
+        .expect("demo migrations");
+
+    let mut response = database
+        .query("CREATE ONLY item SET name = 'First' RETURN id, name;")
+        .await
+        .expect("item queries")
+        .check()
+        .expect("item statements");
+    let created: Option<DemoItem> = response.take(0).expect("created item");
+    let created = created.expect("created record");
+    assert_eq!(created.name, "First");
+    let RecordIdKey::String(id) = created.id.key else {
+        panic!("expected string record key");
+    };
+
+    let mut response = database
+        .query("UPDATE ONLY type::record('item', $id) SET name = $name RETURN id, name;")
+        .bind(("id", id.clone()))
+        .bind(("name", "Updated"))
+        .await
+        .expect("update query")
+        .check()
+        .expect("update statement");
+    let updated: Option<DemoItem> = response.take(0).expect("updated item");
+    assert_eq!(updated.expect("updated record").name, "Updated");
+
+    let mut response = database
+        .query("SELECT name, created_at, id FROM item ORDER BY created_at, id;")
+        .await
+        .expect("select query")
+        .check()
+        .expect("select statement");
+    let items: Vec<ItemName> = response.take(0).expect("items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].name, "Updated");
+
+    let mut response = database
+        .query("DELETE ONLY type::record('item', $id) RETURN BEFORE;")
+        .bind(("id", id))
+        .await
+        .expect("delete query")
+        .check()
+        .expect("delete statement");
+    assert!(
+        response
+            .take::<Option<DemoItem>>(0)
+            .expect("deleted item")
+            .is_some()
+    );
 }
 
 #[tokio::test]

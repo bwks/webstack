@@ -224,6 +224,8 @@ fn new_generates_an_application_owned_project() {
     for relative in [
         "Cargo.toml",
         "src/main.rs",
+        "src/errors.rs",
+        "src/items.rs",
         "webstack.toml",
         "webstack.example.toml",
         "assets/css/input.css",
@@ -233,8 +235,15 @@ fn new_generates_an_application_owned_project() {
         "templates/pages/index.html",
         "templates/pages/login.html",
         "templates/pages/change_password.html",
+        "templates/pages/error.html",
+        "templates/pages/items.html",
+        "templates/pages/item_edit.html",
+        "templates/partials/error.html",
+        "templates/partials/items_region.html",
+        "templates/partials/item_edit.html",
         "migrations/0001_initialize.surql",
         "docs/README.md",
+        "docs/CONVENTIONS.md",
         "tests/application.rs",
     ] {
         assert!(target.join(relative).is_file(), "missing {relative}");
@@ -250,6 +259,7 @@ fn new_generates_an_application_owned_project() {
     assert!(main.contains("Application::builder()"));
     assert!(!main.contains("ApplicationSettings"));
     assert!(main.contains(".assets::<Assets>()?"));
+    assert!(main.contains(".error_renderer(errors::render)?"));
     assert!(main.contains(".auth_pages(get(login_page), get(password_page))?"));
     assert!(main.contains(".authenticated_route(\"/account\", get(account))?"));
     assert!(main.contains(".role_route(\"/admin\", \"admin\", get(admin))?"));
@@ -270,6 +280,7 @@ fn new_generates_an_application_owned_project() {
         .expect("initial migration");
     assert!(migration.contains("DEFINE TABLE _webstack_user SCHEMAFULL"));
     assert!(migration.contains("DEFINE TABLE _webstack_session SCHEMAFULL"));
+    assert!(migration.contains("DEFINE TABLE item SCHEMAFULL"));
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
     assert!(!target.join("assets/css/app.css").exists());

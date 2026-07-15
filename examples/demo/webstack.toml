@@ -1,5 +1,10 @@
 environment = "development"
 
+[assets]
+tailwind_version = "4.3.1"
+daisyui_version = "5.6.18"
+htmx_version = "4.0.0-beta5"
+
 [server]
 bind_addr = "0.0.0.0"
 http_port = 42069

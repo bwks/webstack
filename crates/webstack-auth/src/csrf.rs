@@ -1,8 +1,9 @@
 use std::convert::Infallible;
 
 use axum::{
+    body::{Body, to_bytes},
     extract::{FromRequestParts, Request},
-    http::{Method, StatusCode, request::Parts},
+    http::{Method, StatusCode, header, request::Parts},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -14,6 +15,7 @@ use tower_sessions::Session;
 const CSRF_KEY: &str = "webstack.csrf";
 const CSRF_COOKIE: &str = "webstack.csrf";
 const CSRF_HEADER: &str = "x-csrf-token";
+const MAX_FORM_BODY_BYTES: usize = 64 * 1024;
 
 /// A session-bound token for generated page templates and unsafe requests.
 #[derive(Clone, Debug)]
@@ -65,7 +67,11 @@ where
     }
 }
 
-/// Rejects unsafe requests without matching session, cookie, and header tokens.
+/// Rejects unsafe requests without matching session, cookie, and request tokens.
+///
+/// htmx requests normally send the token in `X-CSRF-Token`. Regular HTML form
+/// submissions may provide the same value in a `_csrf` form field so generated
+/// applications retain progressive enhancement without JavaScript.
 pub async fn csrf_middleware(
     session: Session,
     cookies: Cookies,
@@ -89,6 +95,27 @@ pub async fn csrf_middleware(
         .map(str::to_owned);
     if session_token.is_some() && session_token == cookie_token && session_token == header_token {
         next.run(request).await
+    } else if session_token.is_some()
+        && session_token == cookie_token
+        && request
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("application/x-www-form-urlencoded"))
+    {
+        let (parts, body) = request.into_parts();
+        let Ok(bytes) = to_bytes(body, MAX_FORM_BODY_BYTES).await else {
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        let form_token = form_urlencoded::parse(&bytes)
+            .find(|(name, _value)| name == "_csrf")
+            .map(|(_name, value)| value.into_owned());
+        let request = Request::from_parts(parts, Body::from(bytes));
+        if session_token == form_token {
+            next.run(request).await
+        } else {
+            StatusCode::FORBIDDEN.into_response()
+        }
     } else {
         StatusCode::FORBIDDEN.into_response()
     }

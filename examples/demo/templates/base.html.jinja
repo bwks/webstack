@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}Webstack Demo{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/htmx.min.js" defer></script>
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content antialiased">
+    <header class="sticky top-0 z-30 border-b border-base-300 bg-base-100/90 backdrop-blur">
+      <nav class="navbar mx-auto max-w-5xl px-4 sm:px-6" aria-label="Primary navigation">
+        <div class="navbar-start">
+          <a class="btn btn-ghost gap-2 px-2 text-lg font-semibold" href="/">
+            <span class="grid size-8 place-items-center rounded-lg bg-primary text-sm font-black text-primary-content">W</span>
+            <span>Webstack</span>
+          </a>
+        </div>
+        <div class="navbar-end gap-1">
+          {% if nav.authenticated %}
+            <a class="btn btn-ghost btn-sm hidden sm:inline-flex" href="/items">Items</a>
+            <a class="btn btn-ghost btn-sm hidden sm:inline-flex" href="/account">Account</a>
+            {% if nav.is_admin %}<a class="btn btn-ghost btn-sm hidden sm:inline-flex" href="/admin">Admin</a>{% endif %}
+          {% endif %}
+          <button class="btn btn-ghost btn-square btn-sm" type="button" data-theme-toggle aria-label="Switch color theme" title="Switch color theme">
+            <svg class="size-5 theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>
+            <svg class="size-5 theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </button>
+          {% if nav.authenticated %}
+            <div class="dropdown dropdown-end">
+              <button class="btn btn-ghost btn-sm gap-2" type="button" tabindex="0">
+                <span class="avatar placeholder"><span class="grid size-7 place-items-center rounded-full bg-neutral text-xs uppercase text-neutral-content">{{ nav.username.chars().next().unwrap_or('U') }}</span></span>
+                <span class="hidden sm:inline">{{ nav.username }}</span>
+              </button>
+              <ul class="menu dropdown-content z-40 mt-3 w-52 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl" tabindex="0">
+                <li><a href="/items">Items</a></li>
+                <li><a href="/account">Account</a></li>
+                {% if nav.is_admin %}<li><a href="/admin">Administration</a></li>{% endif %}
+                <li class="mt-1 border-t border-base-300 pt-1">
+                  <form method="post" action="/logout"><input type="hidden" name="_csrf" value="{{ nav.csrf_token }}"><button class="w-full text-error" type="submit">Sign out</button></form>
+                </li>
+              </ul>
+            </div>
+          {% else %}
+            <a class="btn btn-primary btn-sm" href="/login">Sign in</a>
+          {% endif %}
+        </div>
+      </nav>
+    </header>
+    <main class="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 sm:py-16">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="mx-auto max-w-5xl px-4 pb-10 text-center text-sm text-base-content/55 sm:px-6">
+      Axum · SurrealDB · Askama · htmx · daisyUI
+    </footer>
+  </body>
+</html>

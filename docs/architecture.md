@@ -64,7 +64,7 @@ flowchart TB
             Health["/healthz"]:::implemented
             AppRoutes["Application routes"]:::implemented
             Auth["Login, sessions, RBAC<br/>argon2id + axum-login"]:::implemented
-            Views["Askama full pages<br/>and htmx partials"]:::planned
+            Views["Askama full pages<br/>and htmx partials"]:::implemented
             Assets["Embedded CSS, JS,<br/>images and htmx"]:::implemented
         end
 
@@ -136,9 +136,10 @@ Framework libraries expose concrete, operation-specific errors derived with
 `anyhow::Error` or `Box<dyn Error>` in public APIs.
 
 Framework and generated binaries use `anyhow` to attach process-level context at
-startup and command boundaries. HTTP behavior will use Webstack's typed
-`AppError`, re-exported through the facade, so status codes and htmx responses
-remain explicit and testable.
+startup and command boundaries. HTTP behavior uses Webstack's typed `AppError`,
+re-exported through the facade, so status codes and htmx responses remain
+explicit and testable. Internal sources are logged before the application-owned
+renderer receives an `ErrorView` containing only safe display data.
 
 Framework libraries emit structured events and spans with `tracing`. Generated
 application binaries install the process-global subscriber through

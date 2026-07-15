@@ -8,7 +8,15 @@ pub use surrealdb;
 pub use tokio;
 pub use tracing;
 pub use webstack_core::{config, observability};
-pub use webstack_web::{AppState, Application, ApplicationBuilder, ApplicationError, assets, axum};
+pub use webstack_web::{
+    AppError, AppState, Application, ApplicationBuilder, ApplicationError, ErrorView, assets, axum,
+};
+
+pub mod htmx {
+    //! Supported htmx request metadata for application handlers.
+
+    pub use webstack_web::htmx::HxRequest;
+}
 
 pub mod auth {
     //! Supported authentication API for application handlers and templates.
@@ -30,5 +38,7 @@ pub mod prelude {
     pub use webstack_core::config::Config;
     pub use webstack_core::observability::{LogFormat, ObservabilityConfig};
     pub use webstack_db::Database;
-    pub use webstack_web::{AppState, Application, ApplicationError};
+    pub use webstack_web::{
+        AppError, AppState, Application, ApplicationError, ErrorView, htmx::HxRequest,
+    };
 }

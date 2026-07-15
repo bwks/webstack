@@ -34,15 +34,22 @@ records delivery status.
 - Authenticated and arbitrary lowercase snake-case role route guards
 - Environment-aware first-run administrator bootstrap
 
-## Next
-
 ### Phase 5: htmx Patterns and Example Feature
 
-Add reusable full-page/partial rendering, htmx-aware application errors, and a
-reference role-gated CRUD feature.
+- Infallible `HxRequest` extraction for full-page and partial rendering
+- Typed `AppError` statuses with safe full-page and htmx fallback HTML
+- Application-owned error templates through `ApplicationBuilder::error_renderer`
+- Progressive-enhancement CSRF support for htmx headers and ordinary forms
+- Role-gated shared Items CRUD reference feature in generated applications and the demo
+- Stable region, validation-target, write-retry, and side-effect conventions
+
+## Next
+
+### Phase 3: TLS
+
+Add in-process disabled, self-signed, and ACME TLS modes with HTTP redirects.
 
 ## Later
 
-1. Phase 3: in-process disabled, self-signed, and ACME TLS modes with HTTP redirects
-2. Phase 6: logical SurrealDB backup, R2 retention, and restore
-3. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts
+1. Phase 6: logical SurrealDB backup, R2 retention, and restore
+2. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts

@@ -1,0 +1,10 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Administration · Webstack Demo{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-2xl space-y-6">
+  <div><p class="text-sm font-medium text-secondary">Restricted area</p><h1 class="mt-1 text-4xl font-bold">Administration</h1><p class="mt-2 text-base-content/65">This route demonstrates an administrator-only application boundary.</p></div>
+  <div class="alert border border-success/30 bg-success/10 text-success-content"><svg class="size-6 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 12 2 2 4-4"></path><circle cx="12" cy="12" r="9"></circle></svg><span>Your session has the required <strong>admin</strong> role.</span></div>
+</section>
+{% endblock %}

@@ -1,0 +1,28 @@
+<section id="items-region" class="space-y-5">
+  <div id="item-errors" aria-live="polite"></div>
+  <form class="card border border-base-300 bg-base-100" method="post" action="/items"
+        hx-post="/items" hx-target="#items-region" hx-swap="outerHTML"
+        hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'
+        hx-status:4xx="target:#item-errors" hx-status:5xx="target:#item-errors">
+    <div class="card-body gap-3 p-5 sm:flex-row sm:items-end">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label class="form-control grow gap-2"><span class="label-text font-medium">New item</span><input class="input input-bordered w-full" name="name" placeholder="What needs doing?" minlength="1" maxlength="100" required></label>
+      <button class="btn btn-primary" type="submit">Add item</button>
+    </div>
+  </form>
+  <div class="space-y-3">
+  {% for item in items %}
+    <article class="card border border-base-300 bg-base-100 transition-colors hover:border-primary/35"><div class="card-body flex-row items-center justify-between gap-4 p-4 sm:p-5">
+      <span class="min-w-0 grow truncate font-medium">{{ item.name }}</span>
+      <div class="flex shrink-0 gap-2">
+        <a class="btn btn-ghost btn-sm" href="/items/{{ item.id }}/edit" hx-get="/items/{{ item.id }}/edit" hx-target="#items-region" hx-swap="outerHTML">Edit</a>
+        <form method="post" action="/items/{{ item.id }}/delete" hx-delete="/items/{{ item.id }}" hx-target="#items-region" hx-swap="outerHTML" hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}' hx-status:4xx="target:#item-errors" hx-status:5xx="target:#item-errors">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-ghost btn-sm text-error" type="submit">Delete</button>
+        </form>
+      </div>
+    </div></article>
+  {% else %}
+    <div class="rounded-box border border-dashed border-base-300 bg-base-100/50 px-6 py-12 text-center"><p class="font-medium">No items yet</p><p class="mt-1 text-sm text-base-content/55">Add the first item using the form above.</p></div>
+  {% endfor %}
+  </div>
+</section>

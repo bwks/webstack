@@ -45,9 +45,9 @@ response, compiled CSS, and htmx JavaScript are served successfully. It is
 intentionally excluded from the default test suite because it performs network
 downloads and a release build.
 
-Typed-error tests verify both stable display messages and retained source chains.
-HTTP milestones will test every `AppError` variant's status, safe response body,
-and htmx rendering behavior.
+Typed-error tests verify stable statuses, escaped safe display messages, source
+redaction, full-page and htmx rendering, application renderer fallback, and
+duplicate renderer rejection.
 
 Observability tests use scoped subscribers with captured writers so parallel
 tests do not compete for global state. A dedicated integration test verifies

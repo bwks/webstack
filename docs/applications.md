@@ -38,6 +38,12 @@ Domain libraries inside a larger application should define concrete errors with
 `thiserror` and convert them to `AppError` at the HTTP boundary. Internal error
 details are logged, not exposed in browser responses.
 
+Register application-owned error templates with `error_renderer`. The renderer
+receives an `ErrorView` containing only the status, title, safe public message,
+and whether the request came from htmx. Returning `None` selects Webstack's
+escaped default HTML. The framework preserves the `AppError` status and does
+not rewrite unrelated responses.
+
 ## Observability
 
 `Application::run()` loads configuration and initializes Webstack tracing before
@@ -62,8 +68,9 @@ Applications own `/` and register routes fluently. Webstack owns `/healthz`,
 which reports readiness only after a trivial query succeeds against the shared
 database. `/login`, `/logout`, and `/change-password` are reserved for the
 authentication runtime; applications own their GET page templates through
-`auth_pages`. TLS and backup settings are parsed now but must remain disabled until
-their runtime milestones are implemented.
+`auth_pages`. The generated shared Items feature demonstrates authenticated
+reads and `user`-role mutations. TLS and backup settings are parsed now but must
+remain disabled until their runtime milestones are implemented.
 
 ## Layout
 

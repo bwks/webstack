@@ -1,0 +1,29 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Webstack Demo{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-3xl space-y-10">
+  <div class="space-y-5 text-center">
+    <div class="badge badge-primary badge-outline gap-2">Single-process Rust web applications</div>
+    <h1 class="text-4xl font-bold tracking-tight sm:text-6xl">A small stack with strong defaults.</h1>
+    <p class="mx-auto max-w-2xl text-lg leading-relaxed text-base-content/70">
+      This live demo combines server-rendered Askama views, htmx interactions, embedded SurrealDB, local accounts, and daisyUI without a Node runtime.
+    </p>
+    <div class="flex flex-wrap justify-center gap-3 pt-2">
+      {% if nav.authenticated %}
+        <a class="btn btn-primary" href="/items">Open Items</a>
+        <a class="btn btn-ghost" href="/account">View account</a>
+      {% else %}
+        <a class="btn btn-primary" href="/login">Sign in to the demo</a>
+        <a class="btn btn-ghost" href="/healthz">Check readiness</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="grid gap-4 sm:grid-cols-3">
+    <article class="card border border-base-300 bg-base-100"><div class="card-body gap-2 p-5"><span class="badge badge-success badge-sm">Ready</span><h2 class="font-semibold">Embedded data</h2><p class="text-sm text-base-content/65">One RocksDB-backed SurrealDB handle shared safely by every handler.</p></div></article>
+    <article class="card border border-base-300 bg-base-100"><div class="card-body gap-2 p-5"><span class="badge badge-info badge-sm">Typed</span><h2 class="font-semibold">Server-rendered UI</h2><p class="text-sm text-base-content/65">Askama templates provide compile-time views with focused htmx updates.</p></div></article>
+    <article class="card border border-base-300 bg-base-100"><div class="card-body gap-2 p-5"><span class="badge badge-warning badge-sm">Local</span><h2 class="font-semibold">Sessions and roles</h2><p class="text-sm text-base-content/65">Argon2id accounts, durable sessions, CSRF protection, and route guards.</p></div></article>
+  </div>
+</section>
+{% endblock %}

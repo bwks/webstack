@@ -1,2 +1,23 @@
-/* Tailwind and daisyUI configuration will be introduced with the asset milestone. */
+@import "tailwindcss";
+@source "../../src";
+@source "../../templates";
+@plugin "../../tools/daisyui.js";
 
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+.theme-icon-dark {
+  display: none;
+}
+
+[data-theme="dark"] .theme-icon-light {
+  display: none;
+}
+
+[data-theme="dark"] .theme-icon-dark {
+  display: block;
+}

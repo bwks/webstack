@@ -25,7 +25,7 @@ when a public behavior can express the contract.
 - Binaries use `anyhow::Result` or an internal `anyhow` boundary for contextual
   startup and orchestration failures.
 - Preserve source errors and add variants that describe the failed operation.
-- Request-handling errors use `AppError` after the HTTP layer is introduced.
+- Request-handling errors use `AppError`; internal sources are never public copy.
 
 ## Commands
 
@@ -61,6 +61,10 @@ commands intentionally fail until their milestones are complete.
 Generated applications start with `cargo run`. Webstack always loads
 `./webstack.toml`. The framework accepts only the three documented R2 value
 overrides; `RUST_LOG` is unsupported.
+
+The generated Items feature is the reference for htmx handlers, safe errors,
+ordinary form fallbacks, CSRF, and retried database writes. See its generated
+`docs/CONVENTIONS.md` for the application-level rules.
 
 Production Webstack code does not launch external processes. Generated
 `justfile` recipes may describe Cargo, Tailwind, or Bacon commands that a

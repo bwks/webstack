@@ -118,7 +118,10 @@ unsafe_code = "forbid"
     },
     ScaffoldFile {
         path: "src/main.rs",
-        contents: r#"use askama::Template;
+        contents: r#"mod errors;
+mod items;
+
+use askama::Template;
 use askama_web::WebTemplate;
 use webstack::axum::routing::get;
 use webstack::auth::AuthMessage;
@@ -199,15 +202,323 @@ fn auth_message(message: Option<AuthMessage>) -> &'static str {
 #[webstack::tokio::main(crate = "webstack::tokio")]
 /// Composes and runs the generated Webstack application.
 async fn main() -> anyhow::Result<()> {
-    Application::builder()
+    let application = Application::builder()
         .assets::<Assets>()?
+        .error_renderer(errors::render)?
         .auth_pages(get(login_page), get(password_page))?
         .route("/", get(index))?
         .authenticated_route("/account", get(account))?
-        .role_route("/admin", "admin", get(admin))?
-        .run()
-        .await?;
+        .role_route("/admin", "admin", get(admin))?;
+    items::routes(application)?.run().await?;
     Ok(())
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/errors.rs",
+        contents: r#"use askama::Template;
+use webstack::ErrorView;
+
+#[derive(Template)]
+#[template(path = "pages/error.html")]
+struct ErrorPageTemplate<'a> {
+    error: &'a ErrorView,
+}
+
+#[derive(Template)]
+#[template(path = "partials/error.html")]
+struct ErrorPartialTemplate<'a> {
+    error: &'a ErrorView,
+}
+
+/// Renders safe application errors with application-owned templates.
+pub(crate) fn render(error: &ErrorView) -> Option<String> {
+    if error.is_htmx() {
+        ErrorPartialTemplate { error }.render().ok()
+    } else {
+        ErrorPageTemplate { error }.render().ok()
+    }
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/items.rs",
+        contents: r#"use askama::Template;
+use askama_web::WebTemplate;
+use webstack::{
+    AppError, AppState, ApplicationBuilder,
+    auth::CsrfToken,
+    axum::{
+        Form,
+        extract::{Path, State},
+        response::{IntoResponse, Redirect, Response},
+        routing::{get, post, put},
+    },
+    database::retry_write,
+    htmx::HxRequest,
+    serde::Deserialize,
+    surrealdb::types::{RecordId, RecordIdKey, SurrealValue},
+};
+
+const ITEM_ROLE: &str = "user";
+
+#[derive(Clone, Debug)]
+struct ItemView {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, SurrealValue)]
+#[surreal(crate = "webstack::surrealdb::types")]
+struct ItemRecord {
+    id: RecordId,
+    name: String,
+}
+
+impl ItemRecord {
+    /// Converts a database record into display-safe application data.
+    fn into_view(self) -> Result<ItemView, AppError> {
+        let RecordIdKey::String(id) = self.id.key else {
+            return Err(AppError::internal(
+                "read item identifier",
+                std::io::Error::other("item identifier was not a string"),
+            ));
+        };
+        Ok(ItemView {
+            id,
+            name: self.name,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(crate = "webstack::serde")]
+struct ItemForm {
+    name: String,
+}
+
+impl ItemForm {
+    /// Returns a normalized item name or a safe validation error.
+    fn validated_name(&self) -> Result<String, AppError> {
+        let name = self.name.trim();
+        if name.is_empty() || name.chars().count() > 100 {
+            return Err(AppError::validation(
+                "Item names must contain between 1 and 100 characters.",
+            ));
+        }
+        Ok(name.to_owned())
+    }
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "pages/items.html")]
+struct ItemsPageTemplate {
+    items: Vec<ItemView>,
+    csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "partials/items_region.html")]
+struct ItemsRegionTemplate {
+    items: Vec<ItemView>,
+    csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "pages/item_edit.html")]
+struct ItemEditPageTemplate {
+    item: ItemView,
+    csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "partials/item_edit.html")]
+struct ItemEditPartialTemplate {
+    item: ItemView,
+    csrf_token: String,
+}
+
+/// Adds the reference Items feature to an application builder.
+pub(crate) fn routes(application: ApplicationBuilder) -> Result<ApplicationBuilder, webstack::ApplicationError> {
+    application
+        .authenticated_route("/items", get(index))?
+        .role_route("/items", ITEM_ROLE, post(create))?
+        .authenticated_route("/items/{id}/edit", get(edit))?
+        .role_route("/items/{id}", ITEM_ROLE, put(update).delete(remove).post(update))?
+        .role_route("/items/{id}/delete", ITEM_ROLE, post(remove))
+}
+
+/// Renders either the full Items page or its stable htmx region.
+async fn index(
+    State(state): State<AppState>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    render_items(&state, htmx, &csrf).await
+}
+
+/// Creates an item and then renders the post-mutation representation.
+async fn create(
+    State(state): State<AppState>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+    Form(form): Form<ItemForm>,
+) -> Result<Response, AppError> {
+    let name = form.validated_name()?;
+    let database = state.database().clone();
+    retry_write(|| {
+        let database = database.clone();
+        let name = name.clone();
+        async move {
+            database
+                .query("CREATE item SET name = $name;")
+                .bind(("name", name))
+                .await?
+                .check()?;
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|source| AppError::internal("create item", source))?;
+    mutation_response(&state, htmx, &csrf).await
+}
+
+/// Renders an item's full-page or partial edit form.
+async fn edit(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    let item = load_item(&state, &id).await?;
+    let csrf_token = csrf.as_str().to_owned();
+    if htmx.is_htmx() {
+        Ok(ItemEditPartialTemplate { item, csrf_token }.into_response())
+    } else {
+        Ok(ItemEditPageTemplate { item, csrf_token }.into_response())
+    }
+}
+
+/// Updates an item and then renders the post-mutation representation.
+async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+    Form(form): Form<ItemForm>,
+) -> Result<Response, AppError> {
+    let name = form.validated_name()?;
+    let database = state.database().clone();
+    let found = retry_write(|| {
+        let database = database.clone();
+        let id = id.clone();
+        let name = name.clone();
+        async move {
+            let mut response = database
+                .query("UPDATE ONLY type::record('item', $id) SET name = $name RETURN id, name;")
+                .bind(("id", id))
+                .bind(("name", name))
+                .await?
+                .check()?;
+            response.take::<Option<ItemRecord>>(0)
+        }
+    })
+    .await
+    .map_err(|source| AppError::internal("update item", source))?;
+    if found.is_none() {
+        return Err(AppError::not_found("The requested item does not exist."));
+    }
+    mutation_response(&state, htmx, &csrf).await
+}
+
+/// Deletes an item and then renders the post-mutation representation.
+async fn remove(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    let database = state.database().clone();
+    let found = retry_write(|| {
+        let database = database.clone();
+        let id = id.clone();
+        async move {
+            let mut response = database
+                .query("DELETE ONLY type::record('item', $id) RETURN BEFORE;")
+                .bind(("id", id))
+                .await?
+                .check()?;
+            response.take::<Option<ItemRecord>>(0)
+        }
+    })
+    .await
+    .map_err(|source| AppError::internal("delete item", source))?;
+    if found.is_none() {
+        return Err(AppError::not_found("The requested item does not exist."));
+    }
+    mutation_response(&state, htmx, &csrf).await
+}
+
+/// Returns the refreshed region to htmx or a redirect to ordinary browsers.
+async fn mutation_response(
+    state: &AppState,
+    htmx: HxRequest,
+    csrf: &CsrfToken,
+) -> Result<Response, AppError> {
+    if htmx.is_htmx() {
+        render_items(state, htmx, csrf).await
+    } else {
+        Ok(Redirect::to("/items").into_response())
+    }
+}
+
+/// Loads and renders the current collection representation.
+async fn render_items(
+    state: &AppState,
+    htmx: HxRequest,
+    csrf: &CsrfToken,
+) -> Result<Response, AppError> {
+    let items = load_items(state).await?;
+    let csrf_token = csrf.as_str().to_owned();
+    if htmx.is_htmx() {
+        Ok(ItemsRegionTemplate { items, csrf_token }.into_response())
+    } else {
+        Ok(ItemsPageTemplate { items, csrf_token }.into_response())
+    }
+}
+
+/// Loads all shared items in stable creation order.
+async fn load_items(state: &AppState) -> Result<Vec<ItemView>, AppError> {
+    let mut response = state
+        .database()
+        .query("SELECT id, name, created_at FROM item ORDER BY created_at, id;")
+        .await
+        .map_err(|source| AppError::internal("load items", source))?
+        .check()
+        .map_err(|source| AppError::internal("load items", source))?;
+    response
+        .take::<Vec<ItemRecord>>(0)
+        .map_err(|source| AppError::internal("decode items", source))?
+        .into_iter()
+        .map(ItemRecord::into_view)
+        .collect()
+}
+
+/// Loads one item by its string record identifier.
+async fn load_item(state: &AppState, id: &str) -> Result<ItemView, AppError> {
+    let mut response = state
+        .database()
+        .query("SELECT id, name FROM ONLY type::record('item', $id);")
+        .bind(("id", id.to_owned()))
+        .await
+        .map_err(|source| AppError::internal("load item", source))?
+        .check()
+        .map_err(|source| AppError::internal("load item", source))?;
+    response
+        .take::<Option<ItemRecord>>(0)
+        .map_err(|source| AppError::internal("decode item", source))?
+        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
+        .into_view()
 }
 "#,
     },
@@ -419,6 +730,111 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
+        path: "templates/pages/error.html",
+        contents: r#"<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ error.title() }} · Webstack</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+  </head>
+  <body class="min-h-screen bg-base-200 text-base-content">
+    <main class="mx-auto flex min-h-screen max-w-2xl items-center px-6 py-16">
+      <section class="card w-full bg-base-100 shadow-xl"><div class="card-body">
+        <p class="text-sm font-semibold opacity-60">{{ error.status().as_u16() }}</p>
+        <h1 class="card-title text-3xl">{{ error.title() }}</h1>
+        <p>{{ error.message() }}</p>
+        <div class="card-actions"><a class="btn btn-primary" href="/">Return home</a></div>
+      </div></section>
+    </main>
+  </body>
+</html>
+"#,
+    },
+    ScaffoldFile {
+        path: "templates/partials/error.html",
+        contents: r#"<div class="alert alert-error" role="alert">
+  <strong>{{ error.title() }}</strong>
+  <span>{{ error.message() }}</span>
+</div>
+"#,
+    },
+    ScaffoldFile {
+        path: "templates/pages/items.html",
+        contents: r#"{% extends "base.html" %}
+
+{% block title %}Items · Webstack{% endblock %}
+
+{% block content %}
+<section class="w-full space-y-6">
+  <div><a class="link" href="/">Home</a><h1 class="text-4xl font-bold">Items</h1><p class="opacity-70">A shared reference CRUD feature.</p></div>
+  {% include "partials/items_region.html" %}
+</section>
+{% endblock %}
+"#,
+    },
+    ScaffoldFile {
+        path: "templates/partials/items_region.html",
+        contents: r##"<section id="items-region" class="space-y-5">
+  <div id="item-errors" aria-live="polite"></div>
+  <form class="card bg-base-100 shadow" method="post" action="/items"
+        hx-post="/items" hx-target="#items-region" hx-swap="outerHTML"
+        hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'
+        hx-status:4xx="target:#item-errors" hx-status:5xx="target:#item-errors">
+    <div class="card-body sm:flex-row sm:items-end">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label class="form-control grow"><span class="label-text">Name</span><input class="input input-bordered w-full" name="name" minlength="1" maxlength="100" required></label>
+      <button class="btn btn-primary" type="submit">Add item</button>
+    </div>
+  </form>
+  <div class="space-y-3">
+  {% for item in items %}
+    <article class="card bg-base-100 shadow"><div class="card-body flex-row items-center justify-between">
+      <span>{{ item.name }}</span>
+      <div class="flex gap-2">
+        <a class="btn btn-sm" href="/items/{{ item.id }}/edit" hx-get="/items/{{ item.id }}/edit" hx-target="#items-region" hx-swap="outerHTML">Edit</a>
+        <form method="post" action="/items/{{ item.id }}/delete" hx-delete="/items/{{ item.id }}" hx-target="#items-region" hx-swap="outerHTML" hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}' hx-status:4xx="target:#item-errors" hx-status:5xx="target:#item-errors">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-error btn-sm" type="submit">Delete</button>
+        </form>
+      </div>
+    </div></article>
+  {% else %}
+    <p class="rounded-box bg-base-100 p-6 text-center opacity-70">No items yet.</p>
+  {% endfor %}
+  </div>
+</section>
+"##,
+    },
+    ScaffoldFile {
+        path: "templates/pages/item_edit.html",
+        contents: r#"{% extends "base.html" %}
+
+{% block title %}Edit item · Webstack{% endblock %}
+
+{% block content %}
+<section class="w-full space-y-6"><h1 class="text-4xl font-bold">Edit item</h1>{% include "partials/item_edit.html" %}</section>
+{% endblock %}
+"#,
+    },
+    ScaffoldFile {
+        path: "templates/partials/item_edit.html",
+        contents: r##"<section id="items-region" class="space-y-4">
+  <div id="item-errors" aria-live="polite"></div>
+  <form class="card bg-base-100 shadow" method="post" action="/items/{{ item.id }}"
+        hx-put="/items/{{ item.id }}" hx-target="#items-region" hx-swap="outerHTML"
+        hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'
+        hx-status:4xx="target:#item-errors" hx-status:5xx="target:#item-errors">
+    <div class="card-body">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label class="form-control"><span class="label-text">Name</span><input class="input input-bordered" name="name" value="{{ item.name }}" minlength="1" maxlength="100" required></label>
+      <div class="card-actions"><button class="btn btn-primary" type="submit">Save</button><a class="btn" href="/items" hx-get="/items" hx-target="#items-region" hx-swap="outerHTML">Cancel</a></div>
+    </div>
+  </form>
+</section>
+"##,
+    },
+    ScaffoldFile {
         path: "migrations/0001_initialize.surql",
         contents: r"-- Initial application and authentication schema.
 DEFINE TABLE _webstack_user SCHEMAFULL;
@@ -434,6 +850,11 @@ DEFINE TABLE _webstack_session SCHEMAFULL;
 DEFINE FIELD payload ON _webstack_session TYPE string;
 DEFINE FIELD expires_at ON _webstack_session TYPE int;
 DEFINE INDEX webstack_session_expiry ON _webstack_session FIELDS expires_at;
+
+DEFINE TABLE item SCHEMAFULL;
+DEFINE FIELD name ON item TYPE string ASSERT string::len($value) >= 1 AND string::len($value) <= 100;
+DEFINE FIELD created_at ON item TYPE datetime DEFAULT time::now();
+DEFINE FIELD updated_at ON item TYPE datetime DEFAULT time::now() VALUE time::now();
 ",
     },
     ScaffoldFile {
@@ -443,7 +864,29 @@ DEFINE INDEX webstack_session_expiry ON _webstack_session FIELDS expires_at;
 - [Architecture](architecture.md)
 - [Development](development.md)
 - [Deployment](deployment.md)
+- [Application conventions](CONVENTIONS.md)
 ",
+    },
+    ScaffoldFile {
+        path: "docs/CONVENTIONS.md",
+        contents: r#"# Application Conventions
+
+## Full pages and htmx partials
+
+Handlers extract `HxRequest` and render a full page for ordinary navigation or a partial for htmx. Every replaceable partial owns one stable outer element; the Items example uses `#items-region` with `hx-swap="outerHTML"`.
+
+## Forms and CSRF
+
+Unsafe forms include a hidden `_csrf` field for ordinary browser submission and an explicit `X-CSRF-Token` `hx-headers` value for htmx. Keep both: htmx 4 does not implicitly inherit attributes. Validation errors target a stable `#item-errors` live region.
+
+## Errors
+
+Return `AppError` from application handlers. Public variants contain safe display text. Wrap database and other internal failures with `AppError::internal`; Webstack logs the source and renders only generic copy. The application error renderer selects `pages/error.html` for ordinary requests and `partials/error.html` for htmx.
+
+## Database writes
+
+Use `retry_write` only around transaction-safe database operations. Never perform email, network calls, logging with business meaning, or other external side effects inside its closure because the closure can run four times. Render templates and perform follow-up reads after the retried operation.
+"#,
     },
     ScaffoldFile {
         path: "docs/architecture.md",

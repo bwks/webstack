@@ -73,3 +73,15 @@ fn role_routes_validate_public_role_names() {
         .role_route("/reports", "report_editor", get(|| async { "reports" }))
         .expect("lowercase snake-case role");
 }
+
+#[test]
+fn application_error_renderer_registers_once() {
+    let duplicate = Application::builder()
+        .error_renderer(|_view| None)
+        .expect("first renderer")
+        .error_renderer(|_view| None);
+    assert!(matches!(
+        duplicate,
+        Err(ApplicationError::ErrorRendererAlreadyRegistered)
+    ));
+}

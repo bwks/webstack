@@ -1,0 +1,15 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Account · Webstack Demo{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-2xl space-y-6">
+  <div><p class="text-sm font-medium text-primary">Your profile</p><h1 class="mt-1 text-4xl font-bold">Account</h1></div>
+  <div class="card border border-base-300 bg-base-100"><div class="card-body gap-5">
+    <div><p class="text-sm text-base-content/55">Username</p><p class="mt-1 text-lg font-semibold">{{ nav.username }}</p></div>
+    <div class="divider my-0"></div>
+    <div><p class="text-sm text-base-content/55">Assigned roles</p><p class="mt-1 font-medium">{{ roles }}</p></div>
+    <div class="card-actions mt-2"><a class="btn btn-primary" href="/items">Open Items</a><a class="btn btn-ghost" href="/change-password">Change password</a></div>
+  </div></div>
+</section>
+{% endblock %}

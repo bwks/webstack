@@ -1,6 +1,7 @@
 /target/
 **/assets/css/app.css
 /tools/tailwindcss
+/examples/demo/tools/
 /data/
 /webstack.toml
 /graphify-out/
