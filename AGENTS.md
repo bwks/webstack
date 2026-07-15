@@ -231,19 +231,6 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   CSS, and htmx from an isolated directory containing the binary, the required
   `webstack.toml`, and the complete runtime `migrations/` history.
 
-### Phase 3: TLS
-- `tls.rs` with the three-mode switch from config:
-  - `self_signed`: `rcgen::generate_simple_self_signed(["localhost"])` at startup,
-    cert/key fed to rustls config in memory — no files
-  - `acme`: rustls-acme with TLS-ALPN-01, DirCache at `acme_cache_dir`,
-    staging flag honoured, wired into axum-server
-  - `disabled`: plain HTTP on https_port (naming stays consistent)
-- Optional port-8080 listener that 301s everything to https (skipped when
-  `http_redirect = false` or mode = disabled)
-- **Done when:** dev serves https://localhost:8443 with self-signed cert;
-  acme mode verified against LE staging (document the DNS prerequisite);
-  redirect listener works.
-
 ### Phase 4: Auth (authentication + authorisation)
 - `0001_init.surql`: user table (username unique, argon2id password_hash,
   roles array, created_at, disabled flag) + session table
@@ -276,6 +263,19 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Write-retry helper for optimistic conflicts
 - `/healthz` extended with a trivial DB query
 - **Done when:** boot applies migrations idempotently; restart-safe.
+
+### Phase 3: TLS
+- `tls.rs` with the three-mode switch from config:
+  - `self_signed`: `rcgen::generate_simple_self_signed(["localhost"])` at startup,
+    cert/key fed to rustls config in memory — no files
+  - `acme`: rustls-acme with TLS-ALPN-01, DirCache at `acme_cache_dir`,
+    staging flag honoured, wired into axum-server
+  - `disabled`: plain HTTP on https_port (naming stays consistent)
+- Optional port-8080 listener that 301s everything to https (skipped when
+  `http_redirect = false` or mode = disabled)
+- **Done when:** dev serves https://localhost:8443 with self-signed cert;
+  acme mode verified against LE staging (document the DNS prerequisite);
+  redirect listener works.
 
 ### Phase 6: Backup to R2
 - `backup.rs`: SurrealDB export (Rust SDK export on the embedded instance) to a

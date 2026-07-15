@@ -17,19 +17,24 @@ records delivery status.
 - Generated `just` and Bacon development workflows
 - Opt-in isolated release smoke coverage through `just smoke-release`
 
-## Next
-
 ### Phase 2: Embedded Database
 
-Open one embedded SurrealDB instance, select the configured namespace and
-database, apply runtime `./migrations` files idempotently, add bounded retries for
-optimistic write conflicts, and extend `/healthz` with a trivial database query.
+- One shared RocksDB-backed SurrealDB handle in application state
+- Runtime `./migrations` validation, checksums, ledger tracking, and atomic application
+- Bounded retries for optimistic write conflicts
+- Database readiness reporting through `/healthz`
+- Migration generation through `webstack generate migration`
+
+## Next
+
+### Phase 4: Authentication and Authorisation
+
+Add local accounts, SurrealDB-backed sessions, RBAC, CSRF protection, login and
+logout routes, failed-login throttling, and first-run administrator bootstrap.
 
 ## Later
 
-
-1. Session authentication, RBAC, CSRF, and admin bootstrap
-2. Reusable htmx full-page/partial patterns and a reference CRUD feature
-3. In-process disabled, self-signed, and ACME TLS modes with HTTP redirects
-4. Logical SurrealDB backup, R2 retention, and restore
-5. Runtime hardening, broader integration coverage, and deployment artifacts
+1. Phase 5: reusable htmx full-page/partial patterns and a reference CRUD feature
+2. Phase 3: in-process disabled, self-signed, and ACME TLS modes with HTTP redirects
+3. Phase 6: logical SurrealDB backup, R2 retention, and restore
+4. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts

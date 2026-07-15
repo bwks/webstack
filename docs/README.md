@@ -13,6 +13,6 @@ work remains in [`PLAN.md`](../PLAN.md).
 - [Observability](observability.md)
 - [Testing](testing.md)
 
-Configuration, routing, database, authentication, htmx, assets, backup/restore,
-and framework deployment guides will be added with their implementation
-milestones.
+Configuration, routing, database, authentication, htmx, assets, TLS,
+backup/restore, and framework deployment guides will be added with their
+implementation milestones.
