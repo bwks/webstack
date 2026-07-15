@@ -9,12 +9,14 @@ for framework documentation.
 
 ## Current Status
 
-Phases 1 and 2 are complete. Alongside the application generator, typed
+Phases 1, 2, and 4 are complete. Alongside the application generator, typed
 configuration, plain-HTTP runtime, templates, and embedded assets, Webstack now
 opens one embedded RocksDB-backed SurrealDB instance, applies application-owned
-migrations before binding HTTP, and includes database readiness in `/healthz`.
-The remaining implementation order is authentication, reusable htmx patterns,
-TLS, logical backup to R2, and hardening.
+migrations before binding HTTP, includes database readiness in `/healthz`, and
+provides local Argon2id accounts, SurrealDB sessions, CSRF enforcement, login
+throttling, password expiry, and role-protected routes. The remaining
+implementation order is reusable htmx patterns, TLS, logical backup to R2, and
+hardening.
 
 Generate an application from a local build with:
 

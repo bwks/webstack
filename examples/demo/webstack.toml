@@ -1,3 +1,10 @@
+environment = "development"
+
 [server]
 bind_addr = "0.0.0.0"
 http_port = 42069
+
+[auth]
+session_ttl_hours = 168
+bootstrap_admin = true
+password_ttl_days = 90

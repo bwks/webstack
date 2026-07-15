@@ -25,16 +25,24 @@ records delivery status.
 - Database readiness reporting through `/healthz`
 - Migration generation through `webstack generate migration`
 
-## Next
-
 ### Phase 4: Authentication and Authorisation
 
-Add local accounts, SurrealDB-backed sessions, RBAC, CSRF protection, login and
-logout routes, failed-login throttling, and first-run administrator bootstrap.
+- Local Argon2id accounts behind `axum-login` backend traits
+- SurrealDB-backed sessions with absolute lifetime checks and daily cleanup
+- Application-owned login and password-change templates
+- Login/logout, mandatory password rotation, failed-login throttling, and CSRF
+- Authenticated and arbitrary lowercase snake-case role route guards
+- Environment-aware first-run administrator bootstrap
+
+## Next
+
+### Phase 5: htmx Patterns and Example Feature
+
+Add reusable full-page/partial rendering, htmx-aware application errors, and a
+reference role-gated CRUD feature.
 
 ## Later
 
-1. Phase 5: reusable htmx full-page/partial patterns and a reference CRUD feature
-2. Phase 3: in-process disabled, self-signed, and ACME TLS modes with HTTP redirects
-3. Phase 6: logical SurrealDB backup, R2 retention, and restore
-4. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts
+1. Phase 3: in-process disabled, self-signed, and ACME TLS modes with HTTP redirects
+2. Phase 6: logical SurrealDB backup, R2 retention, and restore
+3. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts

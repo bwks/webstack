@@ -172,6 +172,8 @@ thiserror = "2"
 
 ## webstack.toml Schema
 ```toml
+environment = "production" # "development" permits documented local bootstrap convenience
+
 [server]
 bind_addr = "0.0.0.0"
 https_port = 8443
@@ -193,8 +195,9 @@ database = "app"
 [auth]
 session_ttl_hours = 168
 # initial admin bootstrap: on first run, if no users exist, create admin
-# with a generated password printed once to stdout/logs
+# with the documented temporary password; production requires immediate change
 bootstrap_admin = true
+password_ttl_days = 90
 
 [backup]
 enabled = true
@@ -243,7 +246,8 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   (`login_required!` / permission layers); admin-only example route
 - htmx-aware auth errors: `HX-Redirect: /login` on 401 for htmx requests
 - Bootstrap: if `auth.bootstrap_admin` and zero users exist, create `admin`
-  with a random password logged once
+  with temporary password `changeme`; development expires it at
+  `3000-12-31T00:00:00Z`, while production requires an immediate change
 - CSRF middleware (double-submit cookie) + `hx-headers` in base template
 - **Done when:** login/logout work, protected routes reject anonymous +
   wrong-role users, CSRF enforced on unsafe methods, tests cover all three.

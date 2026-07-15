@@ -19,6 +19,8 @@ const CONFIG_PATH: &str = "./webstack.toml";
 #[derive(Debug, Default, Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    #[garde(skip)]
+    pub environment: Environment,
     #[garde(dive)]
     pub assets: AssetsConfig,
     #[garde(dive)]
@@ -102,6 +104,15 @@ impl Config {
                 .collect(),
         })
     }
+}
+
+/// The runtime environment controlling safe development conveniences.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Environment {
+    Development,
+    #[default]
+    Production,
 }
 
 /// Versions of frontend artifacts managed by Webstack tooling.
@@ -218,6 +229,8 @@ pub struct AuthConfig {
     pub session_ttl_hours: u64,
     #[garde(skip)]
     pub bootstrap_admin: bool,
+    #[garde(range(min = 1))]
+    pub password_ttl_days: u16,
 }
 
 impl Default for AuthConfig {
@@ -226,6 +239,7 @@ impl Default for AuthConfig {
         Self {
             session_ttl_hours: 168,
             bootstrap_admin: true,
+            password_ttl_days: 90,
         }
     }
 }
@@ -402,7 +416,7 @@ mod tests {
     use secrecy::{ExposeSecret, SecretString};
     use tempfile::TempDir;
 
-    use super::{Config, ConfigError, LogFormat, R2Credentials, TlsMode};
+    use super::{Config, ConfigError, Environment, LogFormat, R2Credentials, TlsMode};
 
     fn write_config(directory: &Path, contents: &str) -> std::path::PathBuf {
         let path = directory.join("webstack.toml");
@@ -428,6 +442,7 @@ mod tests {
         let config = Config::load_file(&path).expect("valid defaults");
 
         assert_eq!(config.server.bind_addr, IpAddr::from([127, 0, 0, 1]));
+        assert_eq!(config.environment, Environment::Production);
         assert_eq!(config.server.http_port, 8080);
         assert_eq!(config.tls.mode, TlsMode::Disabled);
         assert!(!config.backup.enabled);
@@ -525,6 +540,7 @@ database = ""
 
 [auth]
 session_ttl_hours = 0
+password_ttl_days = 0
 
 [observability]
 filter = "not a [ valid filter"
@@ -537,6 +553,7 @@ filter = "not a [ valid filter"
         assert!(fields.iter().any(|field| field == "database.namespace"));
         assert!(fields.iter().any(|field| field == "database.database"));
         assert!(fields.iter().any(|field| field == "auth.session_ttl_hours"));
+        assert!(fields.iter().any(|field| field == "auth.password_ttl_days"));
         assert!(fields.iter().any(|field| field == "observability.filter"));
     }
 

@@ -12,8 +12,9 @@ Generated applications consume the `webstack` facade. Lifecycle-independent
 configuration and observability live in `webstack-core`; Axum composition,
 typed state, health, and graceful shutdown live in `webstack-web`;
 `webstack-db` owns the embedded connection, migration runner, and write retry
-policy. The facade re-exports their supported APIs so generated applications do
-not depend on internal crates.
+policy; `webstack-auth` owns the swappable account backend, SurrealDB session
+store, CSRF checks, and route guards. The facade re-exports their supported APIs
+so generated applications do not depend on internal crates.
 
 Application routes are registered through `Application::builder().route(...)`.
 The framework reserves `/healthz`; application handlers can extract
@@ -57,12 +58,12 @@ flowchart TB
         PlainHttp["Plain HTTP listener"]:::implemented
         Tls["In-process TLS + redirect<br/>rustls / ACME / self-signed"]:::planned
         Router["Axum router"]:::implemented
-        Middleware["Request ID, security headers,<br/>compression, CSRF"]:::planned
+        Middleware["CSRF enforcement"]:::implemented
 
         subgraph Http["HTTP application layer"]
             Health["/healthz"]:::implemented
             AppRoutes["Application routes"]:::implemented
-            Auth["Login, sessions, RBAC<br/>argon2id + axum-login"]:::planned
+            Auth["Login, sessions, RBAC<br/>argon2id + axum-login"]:::implemented
             Views["Askama full pages<br/>and htmx partials"]:::planned
             Assets["Embedded CSS, JS,<br/>images and htmx"]:::implemented
         end
@@ -70,7 +71,7 @@ flowchart TB
         State["Shared AppState<br/>Config + database"]:::implemented
         Database["Embedded SurrealDB<br/>RocksDB backend"]:::implemented
         Migrations["Runtime ./migrations<br/>startup history"]:::implemented
-        Sessions["SurrealDB session store"]:::planned
+        Sessions["SurrealDB session store"]:::implemented
         Scheduler["Backup and cleanup<br/>scheduler"]:::planned
         Export["Logical export<br/>SURQL → gzip"]:::planned
     end

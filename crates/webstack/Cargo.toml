@@ -16,6 +16,7 @@ tokio.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
 webstack-db = { path = "../webstack-db" }
+webstack-auth = { path = "../webstack-auth" }
 webstack-web = { path = "../webstack-web" }
 
 [lints]

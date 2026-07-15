@@ -8,14 +8,18 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+axum-login.workspace = true
 mime_guess.workspace = true
 rust-embed.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
+tower-sessions.workspace = true
 tracing.workspace = true
 webstack-core = { path = "../webstack-core" }
 webstack-db = { path = "../webstack-db" }
+webstack-auth = { path = "../webstack-auth" }
 
 [dev-dependencies]
 serde_json.workspace = true

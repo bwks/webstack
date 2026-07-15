@@ -231,6 +231,8 @@ fn new_generates_an_application_owned_project() {
         "assets/images/.gitkeep",
         "templates/base.html",
         "templates/pages/index.html",
+        "templates/pages/login.html",
+        "templates/pages/change_password.html",
         "migrations/0001_initialize.surql",
         "docs/README.md",
         "tests/application.rs",
@@ -248,17 +250,26 @@ fn new_generates_an_application_owned_project() {
     assert!(main.contains("Application::builder()"));
     assert!(!main.contains("ApplicationSettings"));
     assert!(main.contains(".assets::<Assets>()?"));
+    assert!(main.contains(".auth_pages(get(login_page), get(password_page))?"));
+    assert!(main.contains(".authenticated_route(\"/account\", get(account))?"));
+    assert!(main.contains(".role_route(\"/admin\", \"admin\", get(admin))?"));
     assert!(!main.contains("struct Migrations"));
     assert!(!main.contains(".migrations::<"));
     assert!(main.contains(".route(\"/\", get(index))?"));
     assert!(main.contains(".run()"));
     assert!(!main.contains("webstack::observability::init"));
     let local_config = fs::read_to_string(target.join("webstack.toml")).expect("local config");
-    assert_eq!(
-        local_config,
-        fs::read_to_string(target.join("webstack.example.toml")).expect("example config")
-    );
+    let example_config =
+        fs::read_to_string(target.join("webstack.example.toml")).expect("example config");
+    assert!(local_config.contains("environment = \"development\""));
+    assert!(example_config.contains("environment = \"production\""));
+    assert_ne!(local_config, example_config);
     assert!(local_config.contains("htmx_version = \"4.0.0-beta5\""));
+    assert!(local_config.contains("password_ttl_days = 90"));
+    let migration = fs::read_to_string(target.join("migrations/0001_initialize.surql"))
+        .expect("initial migration");
+    assert!(migration.contains("DEFINE TABLE _webstack_user SCHEMAFULL"));
+    assert!(migration.contains("DEFINE TABLE _webstack_session SCHEMAFULL"));
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
     assert!(!target.join("assets/css/app.css").exists());

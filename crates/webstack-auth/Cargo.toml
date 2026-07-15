@@ -6,6 +6,27 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[dependencies]
+argon2.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+axum-login.workspace = true
+base64.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+surrealdb.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tower-cookies.workspace = true
+tower-sessions.workspace = true
+tracing.workspace = true
+webstack-core = { path = "../webstack-core" }
+webstack-db = { path = "../webstack-db" }
+
+[dev-dependencies]
+surrealdb = { workspace = true, features = ["kv-mem"] }
+
 [lints]
 workspace = true
-

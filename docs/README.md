@@ -8,11 +8,12 @@ work remains in [`PLAN.md`](../PLAN.md).
 
 - [Getting Started](getting-started.md)
 - [Generated Applications](applications.md)
+- [Authentication and Authorisation](authentication.md)
 - [Architecture](architecture.md)
 - [Development](development.md)
 - [Observability](observability.md)
 - [Testing](testing.md)
 
-Configuration, routing, database, authentication, htmx, assets, TLS,
+Configuration, routing, htmx, assets, TLS,
 backup/restore, and framework deployment guides will be added with their
 implementation milestones.

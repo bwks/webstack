@@ -60,7 +60,9 @@ manage their own configuration independently.
 
 Applications own `/` and register routes fluently. Webstack owns `/healthz`,
 which reports readiness only after a trivial query succeeds against the shared
-database. TLS and backup settings are parsed now but must remain disabled until
+database. `/login`, `/logout`, and `/change-password` are reserved for the
+authentication runtime; applications own their GET page templates through
+`auth_pages`. TLS and backup settings are parsed now but must remain disabled until
 their runtime milestones are implemented.
 
 ## Layout
@@ -78,3 +80,8 @@ Create a migration from the application root with
 the existing history and creates the next four-digit `.surql` file atomically.
 Every deployment must include the complete `migrations/` directory; startup
 rejects a missing directory, changed applied migration, or incomplete history.
+
+The generated initial migration contains Webstack's local account and session
+schema. Later schema changes remain normal application-owned `.surql`
+migrations: generate, commit, and deploy the complete directory with the new
+binary. Migrations are intentionally not embedded in the binary.

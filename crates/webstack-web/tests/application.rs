@@ -38,3 +38,38 @@ fn application_routes_compose_fluently() {
 
     assert_eq!(builder.route_count(), 1);
 }
+
+#[test]
+fn authentication_paths_are_reserved_and_pages_register_once() {
+    let reserved = Application::builder().route("/login", get(|| async { "custom login" }));
+    assert!(matches!(
+        reserved,
+        Err(ApplicationError::ReservedRoute(path)) if path == "/login"
+    ));
+
+    let duplicate = Application::builder()
+        .auth_pages(get(|| async { "login" }), get(|| async { "password" }))
+        .expect("first authentication pages")
+        .auth_pages(get(|| async { "login" }), get(|| async { "password" }));
+    assert!(matches!(
+        duplicate,
+        Err(ApplicationError::AuthPagesAlreadyRegistered)
+    ));
+}
+
+#[test]
+fn role_routes_validate_public_role_names() {
+    let invalid = Application::builder().role_route(
+        "/admin",
+        "Admin-User",
+        get(|| async { "administrator" }),
+    );
+    assert!(matches!(
+        invalid,
+        Err(ApplicationError::InvalidRole(role)) if role == "Admin-User"
+    ));
+
+    Application::builder()
+        .role_route("/reports", "report_editor", get(|| async { "reports" }))
+        .expect("lowercase snake-case role");
+}

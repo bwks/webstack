@@ -10,6 +10,15 @@ pub use tracing;
 pub use webstack_core::{config, observability};
 pub use webstack_web::{AppState, Application, ApplicationBuilder, ApplicationError, assets, axum};
 
+pub mod auth {
+    //! Supported authentication API for application handlers and templates.
+
+    pub use webstack_auth::{
+        ADMIN_ROLE, AuthMessage, AuthSession, CsrfToken, LoginPageContext,
+        PasswordChangePageContext, USER_ROLE, User,
+    };
+}
+
 pub mod database {
     //! Supported embedded database API for application code.
 
@@ -17,6 +26,7 @@ pub mod database {
 }
 
 pub mod prelude {
+    pub use webstack_auth::{CsrfToken, LoginPageContext, PasswordChangePageContext};
     pub use webstack_core::config::Config;
     pub use webstack_core::observability::{LogFormat, ObservabilityConfig};
     pub use webstack_db::Database;
