@@ -2,13 +2,13 @@ use askama::Template;
 use webstack::ErrorView;
 
 #[derive(Template)]
-#[template(path = "pages/error.html.jinja", ext = "html")]
+#[template(path = "errors/page.html.jinja", ext = "html")]
 struct ErrorPageTemplate<'a> {
     error: &'a ErrorView,
 }
 
 #[derive(Template)]
-#[template(path = "partials/error.html.jinja", ext = "html")]
+#[template(path = "errors/partial.html.jinja", ext = "html")]
 struct ErrorPartialTemplate<'a> {
     error: &'a ErrorView,
 }

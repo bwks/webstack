@@ -2,6 +2,11 @@
 
 The demo is the framework's visual reference application. It uses application-owned Askama templates, htmx partials, Tailwind CSS v4, and daisyUI while exercising local accounts, roles, CSRF, embedded SurrealDB, and the shared Items feature.
 
+Its source mirrors newly generated applications: `src/application.rs` composes
+the process, `src/domain` owns models and persistence contexts, and `src/web`
+owns the router, handlers, views, navigation, assets, and error rendering.
+Templates are grouped by feature under `templates/`.
+
 From the repository root, provision the verified frontend tools once and build CSS:
 
 ```sh

@@ -6,6 +6,39 @@ use syn::{
 };
 use tempfile::TempDir;
 
+const APPLICATION_STRUCTURE: &[&str] = &[
+    "src/main.rs",
+    "src/application.rs",
+    "src/domain/mod.rs",
+    "src/domain/items/mod.rs",
+    "src/domain/items/item.rs",
+    "src/domain/items/queries.rs",
+    "src/domain/items/commands.rs",
+    "src/web/mod.rs",
+    "src/web/router.rs",
+    "src/web/assets.rs",
+    "src/web/errors.rs",
+    "src/web/home/mod.rs",
+    "src/web/home/handlers.rs",
+    "src/web/home/views.rs",
+    "src/web/auth/mod.rs",
+    "src/web/auth/handlers.rs",
+    "src/web/auth/views.rs",
+    "src/web/items/mod.rs",
+    "src/web/items/handlers.rs",
+    "src/web/items/views.rs",
+    "templates/layouts/base.html.jinja",
+    "templates/home/index.html.jinja",
+    "templates/auth/login.html.jinja",
+    "templates/auth/change_password.html.jinja",
+    "templates/errors/page.html.jinja",
+    "templates/errors/partial.html.jinja",
+    "templates/items/index.html.jinja",
+    "templates/items/region.html.jinja",
+    "templates/items/edit.html.jinja",
+    "templates/items/edit_form.html.jinja",
+];
+
 struct LocalTypeVisitor {
     found_local_type: bool,
 }
@@ -140,32 +173,13 @@ fn assert_generation_progress(output: &str, target: &Path) {
 }
 
 fn assert_generated_application_files(target: &Path) {
+    assert_application_structure(target);
     for relative in [
         "Cargo.toml",
         "Dockerfile",
         ".dockerignore",
         ".github/workflows/ci.yml",
         "deploy/inventory-app.service",
-        "src/main.rs",
-        "src/application.rs",
-        "src/domain/mod.rs",
-        "src/domain/items/mod.rs",
-        "src/domain/items/item.rs",
-        "src/domain/items/queries.rs",
-        "src/domain/items/commands.rs",
-        "src/web/mod.rs",
-        "src/web/router.rs",
-        "src/web/assets.rs",
-        "src/web/errors.rs",
-        "src/web/home/mod.rs",
-        "src/web/home/handlers.rs",
-        "src/web/home/views.rs",
-        "src/web/auth/mod.rs",
-        "src/web/auth/handlers.rs",
-        "src/web/auth/views.rs",
-        "src/web/items/mod.rs",
-        "src/web/items/handlers.rs",
-        "src/web/items/views.rs",
         "webstack.toml",
         "webstack.example.toml",
         "assets/css/input.css",
@@ -173,21 +187,17 @@ fn assert_generated_application_files(target: &Path) {
         "assets/images/.gitkeep",
         "assets/images/favicon-light.png",
         "assets/images/favicon-dark.png",
-        "templates/layouts/base.html.jinja",
-        "templates/home/index.html.jinja",
-        "templates/auth/login.html.jinja",
-        "templates/auth/change_password.html.jinja",
-        "templates/errors/page.html.jinja",
-        "templates/errors/partial.html.jinja",
-        "templates/items/index.html.jinja",
-        "templates/items/region.html.jinja",
-        "templates/items/edit.html.jinja",
-        "templates/items/edit_form.html.jinja",
         "migrations/0001_initialize.surql",
         "docs/README.md",
         "docs/CONVENTIONS.md",
         "tests/application.rs",
     ] {
+        assert!(target.join(relative).is_file(), "missing {relative}");
+    }
+}
+
+fn assert_application_structure(target: &Path) {
+    for relative in APPLICATION_STRUCTURE {
         assert!(target.join(relative).is_file(), "missing {relative}");
     }
 }
@@ -538,6 +548,48 @@ fn generated_application_nested_in_framework_is_its_own_workspace() {
         .output()
         .expect("cargo metadata should run");
     assert_success(&metadata);
+}
+
+#[test]
+fn example_application_matches_the_generated_structure() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let demo = workspace.join("examples/demo");
+    assert_application_structure(&demo);
+
+    for relative in [
+        "src/web/navigation.rs",
+        "templates/account/index.html.jinja",
+        "templates/admin/index.html.jinja",
+    ] {
+        assert!(demo.join(relative).is_file(), "missing {relative}");
+    }
+    for relative in [
+        "src/errors.rs",
+        "src/items.rs",
+        "templates/base.html.jinja",
+        "templates/pages",
+        "templates/partials",
+    ] {
+        assert!(!demo.join(relative).exists(), "legacy path {relative}");
+    }
+
+    let queries =
+        fs::read_to_string(demo.join("src/domain/items/queries.rs")).expect("demo item queries");
+    let commands =
+        fs::read_to_string(demo.join("src/domain/items/commands.rs")).expect("demo item commands");
+    let handlers =
+        fs::read_to_string(demo.join("src/web/items/handlers.rs")).expect("demo item handlers");
+    assert!(queries.contains("SELECT id, name"));
+    assert!(!queries.contains("retry_write"));
+    assert!(commands.contains("retry_write"));
+    assert!(commands.contains("CREATE item"));
+    assert!(commands.contains("UPDATE ONLY"));
+    assert!(commands.contains("DELETE ONLY"));
+    assert!(!handlers.contains("retry_write"));
+    assert!(!handlers.contains(".query("));
 }
 
 #[test]
