@@ -25,6 +25,16 @@ fn webstack() -> Command {
     command
 }
 
+fn assert_justfile_dev_workflow(justfile: &str) {
+    assert!(justfile.contains("css:"));
+    assert!(justfile.contains("css-watch:"));
+    assert!(justfile.contains("[parallel]\ndev: css-watch run"));
+    assert!(!justfile.contains(concat!("just ", "--parallel")));
+    assert!(justfile.contains("release: css"));
+    assert!(justfile.contains("image: css"));
+    assert!(justfile.contains("{{ tailwind }} -i assets/css/input.css"));
+}
+
 fn impl_target(item: &ItemImpl) -> Option<String> {
     let Type::Path(target) = item.self_ty.as_ref() else {
         return None;
@@ -292,10 +302,7 @@ fn new_generates_an_application_owned_project() {
     assert!(!target.join(".git").exists());
     assert!(!target.join("assets/css/app.css").exists());
     let justfile = fs::read_to_string(target.join("justfile")).expect("justfile");
-    assert!(justfile.contains("css:"));
-    assert!(justfile.contains("css-watch:"));
-    assert!(justfile.contains("release: css"));
-    assert!(justfile.contains("image: css"));
+    assert_justfile_dev_workflow(&justfile);
     let dockerfile = fs::read_to_string(target.join("Dockerfile")).expect("Dockerfile");
     assert!(dockerfile.contains("FROM rust:1.97.0-alpine3.24 AS builder"));
     assert!(dockerfile.contains("FROM alpine:3.24"));
@@ -309,7 +316,6 @@ fn new_generates_an_application_owned_project() {
         fs::read_to_string(target.join("deploy/inventory-app.service")).expect("systemd unit");
     assert!(service.contains("TimeoutStopSec=35s"));
     assert!(service.contains("User=inventory-app"));
-    assert!(justfile.contains("{{tailwind}} -i assets/css/input.css"));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));
     assert!(stdout.contains("just dev"));

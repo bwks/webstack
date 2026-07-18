@@ -710,16 +710,16 @@ setup:
     webstack assets setup
 
 css:
-    {{tailwind}} -i assets/css/input.css -o assets/css/app.css --minify
+    {{ tailwind }} -i assets/css/input.css -o assets/css/app.css --minify
 
 css-watch:
-    {{tailwind}} -i assets/css/input.css -o assets/css/app.css --watch
+    {{ tailwind }} -i assets/css/input.css -o assets/css/app.css --watch
 
 run:
     bacon run
 
-dev:
-    just --parallel css-watch run
+[parallel]
+dev: css-watch run
 
 check:
     cargo fmt --check

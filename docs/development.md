@@ -4,6 +4,9 @@
 
 The workspace uses the stable Rust channel selected by `rust-toolchain.toml` and
 requires Rust 1.97 or newer. Clippy and rustfmt are required components.
+Development workflows also require `just` 1.42 or newer; this is the first
+release with the `[parallel]` attribute used to run dependent recipes
+concurrently.
 
 ## TDD Workflow
 

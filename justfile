@@ -27,16 +27,16 @@ demo-setup:
     just demo-css
 
 demo-css:
-    cd examples/demo && {{demo_tailwind}} -i assets/css/input.css -o assets/css/app.css --minify
+    cd examples/demo && {{ demo_tailwind }} -i assets/css/input.css -o assets/css/app.css --minify
 
 demo-css-watch:
-    cd examples/demo && {{demo_tailwind}} -i assets/css/input.css -o assets/css/app.css --watch
+    cd examples/demo && {{ demo_tailwind }} -i assets/css/input.css -o assets/css/app.css --watch
 
 demo-run:
     cd examples/demo && cargo run -p webstack-demo
 
-demo-dev:
-    just --parallel demo-css-watch demo-run
+[parallel]
+demo-dev: demo-css-watch demo-run
 
 cli *args:
-    cargo run -p webstack-cli -- {{args}}
+    cargo run -p webstack-cli -- {{ args }}
