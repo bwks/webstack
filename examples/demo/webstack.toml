@@ -10,6 +10,7 @@ bind_addr = "0.0.0.0"
 https_port = 7337
 http_port = 42069
 http_redirect = true
+shutdown_timeout_seconds = 30
 
 [tls]
 mode = "self_signed"

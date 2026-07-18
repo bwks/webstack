@@ -17,6 +17,7 @@ https_port = 8443
 http_port = 8080
 # In a TLS mode, this also binds http_port and redirects it to HTTPS.
 http_redirect = false
+shutdown_timeout_seconds = 30
 
 [tls]
 mode = "disabled"
@@ -65,6 +66,7 @@ https_port = 8443
 http_port = 8080
 # In a TLS mode, this also binds http_port and redirects it to HTTPS.
 http_redirect = false
+shutdown_timeout_seconds = 30
 
 [tls]
 mode = "disabled"
@@ -118,6 +120,11 @@ webstack = {{framework_dependency}}
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
 "#,
     },
     ScaffoldFile {
@@ -560,6 +567,114 @@ profile = "default"
 ",
     },
     ScaffoldFile {
+        path: ".dockerignore",
+        contents: r".git/
+.github/
+target/
+tools/
+data/
+webstack.toml
+Dockerfile
+",
+    },
+    ScaffoldFile {
+        path: "Dockerfile",
+        contents: r#"FROM rust:1.97.0-alpine3.24 AS builder
+
+RUN apk add --no-cache \
+    build-base \
+    ca-certificates \
+    clang \
+    clang-dev \
+    cmake \
+    git \
+    linux-headers \
+    perl
+
+ENV CC=clang \
+    CXX=clang++ \
+    LIBCLANG_PATH=/usr/lib
+
+WORKDIR /build
+COPY . .
+RUN cargo build --release
+
+FROM alpine:3.24
+
+RUN apk add --no-cache ca-certificates libgcc libstdc++ \
+    && addgroup -g 10001 -S webstack \
+    && adduser -u 10001 -S -D -H -G webstack webstack \
+    && mkdir -p /app/data \
+    && chown -R webstack:webstack /app
+
+WORKDIR /app
+COPY --from=builder /build/target/release/{{app_name}} /app/{{app_name}}
+COPY --from=builder /build/migrations /app/migrations
+
+USER 10001:10001
+VOLUME ["/app/data"]
+EXPOSE 8080 8443
+ENTRYPOINT ["/app/{{app_name}}"]
+"#,
+    },
+    ScaffoldFile {
+        path: "deploy/{{app_name}}.service",
+        contents: r"[Unit]
+Description={{app_name}} Webstack application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{app_name}}
+Group={{app_name}}
+WorkingDirectory=/opt/{{app_name}}
+ExecStart=/opt/{{app_name}}/{{app_name}}
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=35s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/{{app_name}}
+
+[Install]
+WantedBy=multi-user.target
+",
+    },
+    ScaffoldFile {
+        path: ".github/workflows/ci.yml",
+        contents: r"name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-features
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install --git https://github.com/bwks/webstack.git --branch framework-baseline webstack-cli
+      - run: just setup
+      - run: just image
+",
+    },
+    ScaffoldFile {
         path: "README.md",
         contents: r"# {{app_name}}
 
@@ -613,6 +728,9 @@ check:
 
 release: css
     cargo build --release
+
+image: css
+    docker build --tag {{app_name}}:local .
 "#,
     },
     ScaffoldFile {
@@ -921,6 +1039,18 @@ The local configuration uses `environment = "development"`, where the documented
 Run `just release`. The release binary embeds templates, CSS, JavaScript, and application assets. Deploy the complete `migrations/` directory beside it.
 
 Start from `webstack.example.toml`, which uses `environment = "production"`. A first-run `admin` / `changeme` login is forced immediately to `/change-password`; replace it before serving application routes.
+
+## Alpine container
+
+Run `just setup` once, then `just image`. The multi-stage image builds on Alpine 3.24 and runs as UID/GID 10001 with only CA certificates and the C++ runtime installed. Mount a production configuration at `/app/webstack.toml` and persistent storage at `/app/data`. Set `server.bind_addr = "0.0.0.0"` and `database.data_dir = "./data/surreal"` in the mounted configuration.
+
+The image contains the complete migration history. Probe `/healthz` from the orchestrator; no diagnostic client is added to the runtime image.
+
+## systemd
+
+Install the release binary, `webstack.toml`, and `migrations/` under `/opt/{{app_name}}`. Create the unprivileged `{{app_name}}` account, create `/var/lib/{{app_name}}`, and adjust `database.data_dir` and `tls.acme_cache_dir` to use that writable directory. Install `deploy/{{app_name}}.service`, reload systemd, and enable the service.
+
+The service allows 35 seconds for Webstack's default 30-second graceful shutdown. Ports 8080 and 8443 need no capabilities; production firewalls may map 443 to 8443 without terminating TLS. Inspect structured logs with `journalctl -u {{app_name}}`.
 "#,
     },
     ScaffoldFile {

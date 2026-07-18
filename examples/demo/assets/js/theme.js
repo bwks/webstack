@@ -10,7 +10,6 @@
 
   const applyTheme = (theme) => {
     root.dataset.theme = theme;
-    root.style.colorScheme = theme;
   };
 
   applyTheme(preferredTheme());

@@ -3,6 +3,7 @@ use std::{
     io,
     net::SocketAddr,
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{
@@ -164,9 +165,10 @@ pub(crate) async fn serve(
         exit = servers.join_next() => Some(server_exit(exit)),
         result = wait_for_acme(&mut acme_task) => Some(result),
     };
-    primary_handle.graceful_shutdown(None);
+    let shutdown_timeout = Some(Duration::from_secs(config.server.shutdown_timeout_seconds));
+    primary_handle.graceful_shutdown(shutdown_timeout);
     if let Some(handle) = redirect_handle {
-        handle.graceful_shutdown(None);
+        handle.graceful_shutdown(shutdown_timeout);
     }
     let mut shutdown_error = None;
     while let Some(exit) = servers.join_next().await {
@@ -481,12 +483,19 @@ fn bracket_ipv6(host: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::TcpListener as StdTcpListener, time::Duration};
+    use std::{
+        net::TcpListener as StdTcpListener,
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use axum::{Router, body::Body, http::Request, routing::get};
     use reqwest::redirect::Policy;
     use tempfile::tempdir;
-    use tokio::{sync::oneshot, time::sleep};
+    use tokio::{
+        sync::{Notify, oneshot},
+        time::sleep,
+    };
     use tower::ServiceExt;
     use webstack_core::config::{Config, TlsMode};
 
@@ -645,6 +654,55 @@ mod tests {
 
         shutdown_sender.send(()).expect("shutdown signal");
         server.await.expect("server task").expect("TLS servers");
+    }
+
+    #[tokio::test]
+    async fn shutdown_deadline_terminates_a_long_running_request() {
+        let port = unused_port();
+        let mut config = Config::default();
+        config.server.bind_addr = "127.0.0.1".parse().expect("loopback address");
+        config.server.http_port = port;
+        config.server.shutdown_timeout_seconds = 1;
+        let started = Arc::new(Notify::new());
+        let handler_started = Arc::clone(&started);
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            serve(
+                &config,
+                Router::new()
+                    .route("/ready", get(|| async { "ready" }))
+                    .route(
+                        "/slow",
+                        get(move || {
+                            let handler_started = Arc::clone(&handler_started);
+                            async move {
+                                handler_started.notify_one();
+                                sleep(Duration::from_secs(30)).await;
+                                "late"
+                            }
+                        }),
+                    ),
+                async move {
+                    let _result = shutdown_receiver.await;
+                },
+            )
+            .await
+        });
+        let client = reqwest::Client::new();
+        let response = wait_for_response(&client, &format!("http://127.0.0.1:{port}/ready")).await;
+        assert_eq!(response.status(), 200);
+        let request = tokio::spawn(async move {
+            client
+                .get(format!("http://127.0.0.1:{port}/slow"))
+                .send()
+                .await
+        });
+        started.notified().await;
+        let shutdown_started = Instant::now();
+        shutdown_sender.send(()).expect("shutdown signal");
+        server.await.expect("server task").expect("HTTP server");
+        assert!(shutdown_started.elapsed() < Duration::from_secs(3));
+        assert!(request.await.expect("request task").is_err());
     }
 
     #[test]

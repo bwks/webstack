@@ -15,7 +15,6 @@ work remains in [`PLAN.md`](../PLAN.md).
 - [Observability](observability.md)
 - [TLS and listeners](tls.md)
 - [Testing](testing.md)
+- [Deployment](deployment.md)
 
-Configuration, routing, assets, backup/restore, and framework deployment guides
-will be added with their
-implementation milestones.
+Backup and restore guidance will be added with the final implementation phase.

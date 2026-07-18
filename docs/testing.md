@@ -52,6 +52,11 @@ Typed-error tests verify stable statuses, escaped safe display messages, source
 redaction, full-page and htmx rendering, application renderer fallback, and
 duplicate renderer rejection.
 
+Hardening tests verify replacement UUID request IDs, gzip negotiation, the
+exact browser policy, TLS-only HSTS, and bounded listener shutdown. The opt-in
+Alpine smoke check builds a generated image, runs it as a non-root user with
+mounted configuration and data, probes `/healthz`, and stops it cleanly.
+
 Observability tests use scoped subscribers with captured writers so parallel
 tests do not compete for global state. A dedicated integration test verifies
 that a second global initialization returns a typed error.

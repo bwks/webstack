@@ -223,6 +223,10 @@ fn new_generates_an_application_owned_project() {
 
     for relative in [
         "Cargo.toml",
+        "Dockerfile",
+        ".dockerignore",
+        ".github/workflows/ci.yml",
+        "deploy/inventory-app.service",
         "src/main.rs",
         "src/errors.rs",
         "src/items.rs",
@@ -254,6 +258,8 @@ fn new_generates_an_application_owned_project() {
     assert!(manifest.contains("branch = \"framework-baseline\""));
     assert!(manifest.contains("anyhow = \"1\""));
     assert!(manifest.contains("askama = \"0.16\""));
+    assert!(manifest.contains("[profile.release]"));
+    assert!(manifest.contains("lto = true"));
     let main = fs::read_to_string(target.join("src/main.rs")).expect("main source");
     assert!(main.contains("async fn main() -> anyhow::Result<()>"));
     assert!(main.contains("Application::builder()"));
@@ -276,6 +282,7 @@ fn new_generates_an_application_owned_project() {
     assert_ne!(local_config, example_config);
     assert!(local_config.contains("htmx_version = \"4.0.0-beta5\""));
     assert!(local_config.contains("password_ttl_days = 90"));
+    assert!(local_config.contains("shutdown_timeout_seconds = 30"));
     let migration = fs::read_to_string(target.join("migrations/0001_initialize.surql"))
         .expect("initial migration");
     assert!(migration.contains("DEFINE TABLE _webstack_user SCHEMAFULL"));
@@ -288,6 +295,20 @@ fn new_generates_an_application_owned_project() {
     assert!(justfile.contains("css:"));
     assert!(justfile.contains("css-watch:"));
     assert!(justfile.contains("release: css"));
+    assert!(justfile.contains("image: css"));
+    let dockerfile = fs::read_to_string(target.join("Dockerfile")).expect("Dockerfile");
+    assert!(dockerfile.contains("FROM rust:1.97.0-alpine3.24 AS builder"));
+    assert!(dockerfile.contains("FROM alpine:3.24"));
+    assert!(dockerfile.contains("USER 10001:10001"));
+    assert!(dockerfile.contains("COPY --from=builder /build/migrations /app/migrations"));
+    assert!(!dockerfile.contains("debian"));
+    let dockerignore = fs::read_to_string(target.join(".dockerignore")).expect(".dockerignore");
+    assert!(dockerignore.contains("webstack.toml"));
+    assert!(!dockerignore.contains("assets/css/app.css"));
+    let service =
+        fs::read_to_string(target.join("deploy/inventory-app.service")).expect("systemd unit");
+    assert!(service.contains("TimeoutStopSec=35s"));
+    assert!(service.contains("User=inventory-app"));
     assert!(justfile.contains("{{tailwind}} -i assets/css/input.css"));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));

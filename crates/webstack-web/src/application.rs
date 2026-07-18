@@ -11,6 +11,7 @@ use axum::{
 use axum_login::AuthManagerLayerBuilder;
 use serde::Serialize;
 use thiserror::Error;
+use tower_http::compression::CompressionLayer;
 use tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer};
 use webstack_auth::{
     AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole, SurrealSessionStore,
@@ -213,6 +214,7 @@ impl ApplicationBuilder {
             .await
             .map_err(ApplicationError::Tls);
         cleanup.abort();
+        let _cleanup_result = cleanup.await;
         result
     }
 
@@ -234,6 +236,7 @@ impl ApplicationBuilder {
             throttle: LoginThrottle::default(),
         };
         let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
+        let tls_active = config.tls.mode != TlsMode::Disabled;
         self.router
             .route(HEALTH_PATH, get(health))
             .with_state(AppState { config, database })
@@ -241,6 +244,10 @@ impl ApplicationBuilder {
             .layer(auth_layer)
             .layer(middleware::from_fn(move |request, next| {
                 render_application_error(request, next, error_renderer.clone())
+            }))
+            .layer(CompressionLayer::new())
+            .layer(middleware::from_fn(move |request, next| {
+                crate::hardening::middleware(tls_active, request, next)
             }))
     }
 }
@@ -411,7 +418,13 @@ mod tests {
     use axum::{
         body::{Body, to_bytes},
         extract::State,
-        http::{Request, StatusCode, header},
+        http::{
+            Request, StatusCode, header,
+            header::{
+                CONTENT_ENCODING, CONTENT_SECURITY_POLICY, REFERRER_POLICY,
+                STRICT_TRANSPORT_SECURITY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+            },
+        },
         routing::{get, post},
     };
     use surrealdb::{Surreal, engine::local::Mem};
@@ -540,6 +553,64 @@ mod tests {
                 .expect("body"),
             "{\"status\":\"unavailable\"}"
         );
+    }
+
+    #[tokio::test]
+    async fn hardening_replaces_request_ids_and_applies_security_headers() {
+        let router =
+            Application::builder().into_router(Arc::new(Config::default()), test_database().await);
+        let response = router
+            .oneshot(
+                Request::get("/healthz")
+                    .header("x-request-id", "untrusted")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .expect("request ID");
+        assert_ne!(request_id, "untrusted");
+        uuid::Uuid::parse_str(request_id).expect("UUID request ID");
+        assert_eq!(
+            response.headers()[CONTENT_SECURITY_POLICY],
+            "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'"
+        );
+        assert_eq!(response.headers()[X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(response.headers()[X_FRAME_OPTIONS], "DENY");
+        assert_eq!(response.headers()[REFERRER_POLICY], "no-referrer");
+        assert_eq!(
+            response.headers()["permissions-policy"],
+            "camera=(), geolocation=(), microphone=()"
+        );
+        assert!(!response.headers().contains_key(STRICT_TRANSPORT_SECURITY));
+    }
+
+    #[tokio::test]
+    async fn tls_adds_hsts_and_large_responses_support_gzip() {
+        let mut config = Config::default();
+        config.tls.mode = TlsMode::SelfSigned;
+        let router = Application::builder()
+            .route("/large", get(|| async { "content ".repeat(2_048) }))
+            .expect("large route")
+            .into_router(Arc::new(config), test_database().await);
+        let response = router
+            .oneshot(
+                Request::get("/large")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(
+            response.headers()[STRICT_TRANSPORT_SECURITY],
+            "max-age=31536000"
+        );
+        assert_eq!(response.headers()[CONTENT_ENCODING], "gzip");
     }
 
     #[tokio::test]

@@ -13,6 +13,9 @@ test:
 smoke-release:
     cargo test -p webstack-cli --test release_smoke -- --ignored --nocapture
 
+smoke-image:
+    cargo test -p webstack-cli --test docker_smoke -- --ignored --nocapture
+
 clippy:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 

@@ -61,8 +61,9 @@ domain, email, and listener ports before binding either listener.
 Database initialization, migrations, and authentication bootstrap finish
 before any listener binds. If the primary or redirect listener cannot bind,
 startup fails without leaving the other listener running. SIGINT or SIGTERM
-stops both listeners and allows in-flight requests to finish.
+stops both listeners and allows in-flight requests to finish for up to
+`server.shutdown_timeout_seconds`, which defaults to 30 seconds.
 
 Session cookies use the `Secure` attribute in self-signed and ACME modes.
-Strict-Transport-Security and the remaining security headers belong to the
-hardening phase.
+HTTPS responses include `Strict-Transport-Security: max-age=31536000`.
+`includeSubDomains` and preload are intentionally omitted.

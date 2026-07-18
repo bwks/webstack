@@ -58,7 +58,7 @@ flowchart TB
         PlainHttp["Plain HTTP listener"]:::implemented
         Tls["In-process TLS + redirect<br/>rustls / ACME / self-signed"]:::implemented
         Router["Axum router"]:::implemented
-        Middleware["CSRF enforcement"]:::implemented
+        Middleware["Request IDs, tracing, compression,<br/>security headers, CSRF"]:::implemented
 
         subgraph Http["HTTP application layer"]
             Health["/healthz"]:::implemented
@@ -72,7 +72,7 @@ flowchart TB
         Database["Embedded SurrealDB<br/>RocksDB backend"]:::implemented
         Migrations["Runtime ./migrations<br/>startup history"]:::implemented
         Sessions["SurrealDB session store"]:::implemented
-        Scheduler["Backup and cleanup<br/>scheduler"]:::planned
+        Scheduler["Backup scheduler"]:::planned
         Export["Logical export<br/>SURQL → gzip"]:::planned
     end
 
@@ -129,6 +129,11 @@ thread-safe handle. Assets and templates compile into release binaries. The
 complete immutable migration history is deployed as `./migrations` and is
 validated before HTTP binds. Live RocksDB files are never copied for backup or
 opened by a second process.
+
+Every request receives a framework-generated UUID that replaces any inbound
+`X-Request-ID`. Responses carry a strict same-origin browser policy, and HTTPS
+responses add HSTS. Shutdown drains connections for the configured bounded
+deadline before the runtime releases its shared database handles.
 
 ## Error Boundaries
 

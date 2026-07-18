@@ -20,8 +20,10 @@ serde.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tower-http.workspace = true
 tower-sessions.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 webstack-core = { path = "../webstack-core" }
 webstack-db = { path = "../webstack-db" }
 webstack-auth = { path = "../webstack-auth" }

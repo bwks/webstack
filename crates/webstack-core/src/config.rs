@@ -167,6 +167,8 @@ pub struct ServerConfig {
     pub http_port: u16,
     #[garde(skip)]
     pub http_redirect: bool,
+    #[garde(range(min = 1, max = 300))]
+    pub shutdown_timeout_seconds: u64,
 }
 
 impl Default for ServerConfig {
@@ -177,6 +179,7 @@ impl Default for ServerConfig {
             https_port: 8443,
             http_port: 8080,
             http_redirect: false,
+            shutdown_timeout_seconds: 30,
         }
     }
 }
@@ -508,6 +511,7 @@ mod tests {
         assert_eq!(config.server.bind_addr, IpAddr::from([127, 0, 0, 1]));
         assert_eq!(config.environment, Environment::Production);
         assert_eq!(config.server.http_port, 8080);
+        assert_eq!(config.server.shutdown_timeout_seconds, 30);
         assert_eq!(config.tls.mode, TlsMode::Disabled);
         assert!(!config.backup.enabled);
         assert_eq!(config.observability.format(), LogFormat::Pretty);
@@ -683,6 +687,26 @@ filter = "not a [ valid filter"
         config.tls.acme_email = Some("admin@example.com".to_owned());
         let fields = validation_fields(config.validate().expect_err("colliding TLS listeners"));
         assert!(fields.iter().any(|field| field == "server.http_port"));
+    }
+
+    #[test]
+    fn shutdown_timeout_is_bounded() {
+        let mut config = Config::default();
+        config.server.shutdown_timeout_seconds = 0;
+        let fields = validation_fields(config.validate().expect_err("zero timeout"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "server.shutdown_timeout_seconds")
+        );
+
+        config.server.shutdown_timeout_seconds = 301;
+        let fields = validation_fields(config.validate().expect_err("long timeout"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "server.shutdown_timeout_seconds")
+        );
     }
 
     #[test]

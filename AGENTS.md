@@ -181,6 +181,7 @@ bind_addr = "0.0.0.0"
 https_port = 8443
 http_port = 8080
 http_redirect = true        # false disables the port-8080 listener entirely
+shutdown_timeout_seconds = 30
 
 [tls]
 mode = "acme"               # "acme" | "self_signed" | "disabled"
@@ -283,18 +284,7 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   acme mode verified against LE staging (document the DNS prerequisite);
   redirect listener works.
 
-### Phase 6: Backup to R2
-- `backup.rs`: SurrealDB export (Rust SDK export on the embedded instance) to a
-  temp file → gzip → upload to R2 key `{prefix}{iso8601-utc}.surql.gz`
-- Retention: list keys under prefix, delete oldest beyond `retention`
-- Scheduled via tokio-cron-scheduler from `backup.cron`; also an admin-role-only
-  route to trigger an on-demand backup
-- Restore path: `APP_RESTORE_FROM=<r2-key-or-local-path>` env at startup imports
-  into a fresh data dir before serving; document the procedure in README
-- **Done when:** scheduled backup lands in R2, retention pruning works,
-  restore verified end-to-end against a throwaway bucket + fresh data dir.
-
-### Phase 7: Hardening
+### Phase 6: Hardening
 - tower-http compression + trace layers, request IDs
 - Graceful shutdown: SIGTERM → stop accepting, finish in-flight, close Surreal
   cleanly (scheduler shutdown too)
@@ -308,7 +298,18 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   `webstack.toml`, and `migrations/` to an empty dir, run with self_signed mode,
   assert /static/app.css and
   /static/htmx.min.js return 200
-- Dockerfile (debian-slim or distroless): image = binary only + mounted data volume
+- Dockerfile: Alpine multi-stage build, non-root runtime, mounted data volume
+
+### Phase 7: Backup to R2
+- `backup.rs`: SurrealDB export (Rust SDK export on the embedded instance) to a
+  temp file → gzip → upload to R2 key `{prefix}{iso8601-utc}.surql.gz`
+- Retention: list keys under prefix, delete oldest beyond `retention`
+- Scheduled via tokio-cron-scheduler from `backup.cron`; also an admin-role-only
+  route to trigger an on-demand backup
+- Restore path: `APP_RESTORE_FROM=<r2-key-or-local-path>` env at startup imports
+  into a fresh data dir before serving; document the procedure in README
+- **Done when:** scheduled backup lands in R2, retention pruning works,
+  restore verified end-to-end against a throwaway bucket + fresh data dir.
 
 ## Testing Requirements
 - Every integration test uses its own temp data dir

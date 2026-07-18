@@ -3,6 +3,7 @@
 mod application;
 pub mod assets;
 mod error;
+mod hardening;
 pub mod htmx;
 pub mod tls;
 

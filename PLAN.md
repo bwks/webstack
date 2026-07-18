@@ -49,12 +49,15 @@ records delivery status.
 - Added optional HTTP-to-HTTPS redirects with path and query preservation.
 - Added coordinated listener shutdown and secure session cookies in TLS modes.
 
+### Phase 6: Runtime Hardening
+
+- Configurable bounded graceful shutdown for listener and background tasks
+- Trusted request IDs, structured request tracing, and gzip compression
+- Strict same-origin browser security headers with TLS-only HSTS
+- Optimized releases, Alpine container deployment, hardened systemd units, and CI
+
 ## Next
 
-### Phase 6: Backup to R2
+### Phase 7: Backup to R2
 
-Add logical SurrealDB backup, R2 retention, and restore.
-
-## Later
-
-1. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts
+Add logical SurrealDB backup, R2 retention, and restore as the final phase.

@@ -63,7 +63,8 @@ pub(crate) fn generate(options: &GenerateOptions) -> Result<PathBuf, GenerateErr
 fn write_scaffold(options: &GenerateOptions) -> io::Result<()> {
     let dependency = framework_dependency(options.framework_path.as_deref())?;
     for file in scaffold::FILES {
-        let path = options.target.join(file.path);
+        let relative_path = file.path.replace("{{app_name}}", &options.name);
+        let path = options.target.join(relative_path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
