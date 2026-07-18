@@ -35,6 +35,32 @@ fn assert_justfile_dev_workflow(justfile: &str) {
     assert!(justfile.contains("{{ tailwind }} -i assets/css/input.css"));
 }
 
+fn assert_favicon_links(template: &str) {
+    assert!(template.contains(
+        r#"href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)""#
+    ));
+    assert!(template.contains(
+        r#"href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)""#
+    ));
+}
+
+fn assert_generated_favicons(target: &Path) {
+    let favicon_light =
+        fs::read(target.join("assets/images/favicon-light.png")).expect("light favicon");
+    let favicon_dark =
+        fs::read(target.join("assets/images/favicon-dark.png")).expect("dark favicon");
+    assert!(favicon_light.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert!(favicon_dark.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert_ne!(favicon_light, favicon_dark);
+
+    let base_template =
+        fs::read_to_string(target.join("templates/base.html")).expect("base template");
+    let error_template =
+        fs::read_to_string(target.join("templates/pages/error.html")).expect("error template");
+    assert_favicon_links(&base_template);
+    assert_favicon_links(&error_template);
+}
+
 fn impl_target(item: &ItemImpl) -> Option<String> {
     let Type::Path(target) = item.self_ty.as_ref() else {
         return None;
@@ -245,6 +271,8 @@ fn new_generates_an_application_owned_project() {
         "assets/css/input.css",
         "assets/js/htmx.min.js",
         "assets/images/.gitkeep",
+        "assets/images/favicon-light.png",
+        "assets/images/favicon-dark.png",
         "templates/base.html",
         "templates/pages/index.html",
         "templates/pages/login.html",
@@ -301,6 +329,7 @@ fn new_generates_an_application_owned_project() {
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
     assert!(!target.join("assets/css/app.css").exists());
+    assert_generated_favicons(&target);
     let justfile = fs::read_to_string(target.join("justfile")).expect("justfile");
     assert_justfile_dev_workflow(&justfile);
     let dockerfile = fs::read_to_string(target.join("Dockerfile")).expect("Dockerfile");

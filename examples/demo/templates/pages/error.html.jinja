@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en" data-theme="light">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>{{ error.title() }} · Webstack Demo</title><link rel="stylesheet" href="/static/css/app.css"><script src="/static/js/theme.js"></script></head>
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>{{ error.title() }} · Webstack Demo</title><link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)" data-favicon-theme="light"><link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)" data-favicon-theme="dark"><link rel="stylesheet" href="/static/css/app.css"><script src="/static/js/theme.js"></script></head>
   <body class="grid min-h-screen place-items-center bg-base-200 p-6 text-base-content">
     <main class="card w-full max-w-lg border border-base-300 bg-base-100 shadow-xl"><div class="card-body gap-4"><div class="badge badge-error badge-outline">{{ error.status().as_u16() }}</div><h1 class="text-3xl font-bold">{{ error.title() }}</h1><p class="text-base-content/65">{{ error.message() }}</p><div class="card-actions mt-2"><a class="btn btn-primary" href="/">Return home</a></div></div></main>
   </body>

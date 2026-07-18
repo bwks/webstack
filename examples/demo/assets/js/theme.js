@@ -10,6 +10,9 @@
 
   const applyTheme = (theme) => {
     root.dataset.theme = theme;
+    document.querySelectorAll("[data-favicon-theme]").forEach((favicon) => {
+      favicon.media = favicon.dataset.faviconTheme === theme ? "all" : "not all";
+    });
   };
 
   applyTheme(preferredTheme());

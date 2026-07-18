@@ -74,6 +74,13 @@ fn write_scaffold(options: &GenerateOptions) -> io::Result<()> {
             .replace("{{framework_dependency}}", &dependency);
         fs::write(path, contents)?;
     }
+    for file in scaffold::BINARY_FILES {
+        let path = options.target.join(file.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, file.contents)?;
+    }
     Ok(())
 }
 

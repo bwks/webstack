@@ -3,6 +3,11 @@ pub(crate) struct ScaffoldFile {
     pub(crate) contents: &'static str,
 }
 
+pub(crate) struct ScaffoldBinaryFile {
+    pub(crate) path: &'static str,
+    pub(crate) contents: &'static [u8],
+}
+
 const CONFIG: &str = r#"environment = "development"
 
 [assets]
@@ -777,6 +782,8 @@ need_stdout = true
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Webstack{% endblock %}</title>
+    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)">
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="/static/js/htmx.min.js" defer></script>
   </head>
@@ -859,6 +866,8 @@ need_stdout = true
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ error.title() }} · Webstack</title>
+    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)">
     <link rel="stylesheet" href="/static/css/app.css">
   </head>
   <body class="min-h-screen bg-base-200 text-base-content">
@@ -1062,5 +1071,16 @@ fn application_can_be_composed_from_the_facade() {
     let _application = Application::builder();
 }
 ",
+    },
+];
+
+pub(crate) const BINARY_FILES: &[ScaffoldBinaryFile] = &[
+    ScaffoldBinaryFile {
+        path: "assets/images/favicon-light.png",
+        contents: include_bytes!("../scaffold/favicon-light.png"),
+    },
+    ScaffoldBinaryFile {
+        path: "assets/images/favicon-dark.png",
+        contents: include_bytes!("../scaffold/favicon-dark.png"),
     },
 ];

@@ -161,6 +161,14 @@ mod tests {
         assert!(html.contains("data-theme-toggle"));
         assert!(html.contains("/static/css/app.css"));
         assert!(html.contains("/static/js/theme.js"));
+        assert!(html.contains(
+            r#"href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)""#
+        ));
+        assert!(html.contains(
+            r#"href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)""#
+        ));
+        assert!(html.contains(r#"data-favicon-theme="light""#));
+        assert!(html.contains(r#"data-favicon-theme="dark""#));
         assert!(html.contains("Sign in to the demo"));
         assert!(!html.contains("action=\"/logout\""));
     }
