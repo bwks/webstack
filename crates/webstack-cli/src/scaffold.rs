@@ -150,21 +150,21 @@ use webstack::prelude::*;
 struct Assets;
 
 #[derive(Template, WebTemplate)]
-#[template(path = "pages/index.html")]
+#[template(path = "pages/index.html.jinja", ext = "html")]
 struct IndexTemplate {
     app_name: &'static str,
     csrf_token: String,
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "pages/login.html")]
+#[template(path = "pages/login.html.jinja", ext = "html")]
 struct LoginTemplate {
     csrf_token: String,
     message: &'static str,
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "pages/change_password.html")]
+#[template(path = "pages/change_password.html.jinja", ext = "html")]
 struct PasswordTemplate {
     csrf_token: String,
     message: &'static str,
@@ -238,13 +238,13 @@ async fn main() -> anyhow::Result<()> {
 use webstack::ErrorView;
 
 #[derive(Template)]
-#[template(path = "pages/error.html")]
+#[template(path = "pages/error.html.jinja", ext = "html")]
 struct ErrorPageTemplate<'a> {
     error: &'a ErrorView,
 }
 
 #[derive(Template)]
-#[template(path = "partials/error.html")]
+#[template(path = "partials/error.html.jinja", ext = "html")]
 struct ErrorPartialTemplate<'a> {
     error: &'a ErrorView,
 }
@@ -329,28 +329,28 @@ impl ItemForm {
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "pages/items.html")]
+#[template(path = "pages/items.html.jinja", ext = "html")]
 struct ItemsPageTemplate {
     items: Vec<ItemView>,
     csrf_token: String,
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "partials/items_region.html")]
+#[template(path = "partials/items_region.html.jinja", ext = "html")]
 struct ItemsRegionTemplate {
     items: Vec<ItemView>,
     csrf_token: String,
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "pages/item_edit.html")]
+#[template(path = "pages/item_edit.html.jinja", ext = "html")]
 struct ItemEditPageTemplate {
     item: ItemView,
     csrf_token: String,
 }
 
 #[derive(Template, WebTemplate)]
-#[template(path = "partials/item_edit.html")]
+#[template(path = "partials/item_edit.html.jinja", ext = "html")]
 struct ItemEditPartialTemplate {
     item: ItemView,
     csrf_token: String,
@@ -777,7 +777,7 @@ need_stdout = true
         contents: "",
     },
     ScaffoldFile {
-        path: "templates/base.html",
+        path: "templates/base.html.jinja",
         contents: r#"<!doctype html>
 <html lang="en" data-theme="light">
   <head>
@@ -798,8 +798,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/index.html",
-        contents: r#"{% extends "base.html" %}
+        path: "templates/pages/index.html.jinja",
+        contents: r#"{% extends "base.html.jinja" %}
 
 {% block title %}{{ app_name }} · Webstack{% endblock %}
 
@@ -820,8 +820,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/login.html",
-        contents: r#"{% extends "base.html" %}
+        path: "templates/pages/login.html.jinja",
+        contents: r#"{% extends "base.html.jinja" %}
 
 {% block title %}Sign in · Webstack{% endblock %}
 
@@ -840,8 +840,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/change_password.html",
-        contents: r#"{% extends "base.html" %}
+        path: "templates/pages/change_password.html.jinja",
+        contents: r#"{% extends "base.html.jinja" %}
 
 {% block title %}Change password · Webstack{% endblock %}
 
@@ -861,7 +861,7 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/error.html",
+        path: "templates/pages/error.html.jinja",
         contents: r#"<!doctype html>
 <html lang="en" data-theme="light">
   <head>
@@ -886,7 +886,7 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/error.html",
+        path: "templates/partials/error.html.jinja",
         contents: r#"<div class="alert alert-error" role="alert">
   <strong>{{ error.title() }}</strong>
   <span>{{ error.message() }}</span>
@@ -894,21 +894,21 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/items.html",
-        contents: r#"{% extends "base.html" %}
+        path: "templates/pages/items.html.jinja",
+        contents: r#"{% extends "base.html.jinja" %}
 
 {% block title %}Items · Webstack{% endblock %}
 
 {% block content %}
 <section class="w-full space-y-6">
   <div><a class="link" href="/">Home</a><h1 class="text-4xl font-bold">Items</h1><p class="opacity-70">A shared reference CRUD feature.</p></div>
-  {% include "partials/items_region.html" %}
+  {% include "partials/items_region.html.jinja" %}
 </section>
 {% endblock %}
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/items_region.html",
+        path: "templates/partials/items_region.html.jinja",
         contents: r##"<section id="items-region" class="space-y-5">
   <div id="item-errors" aria-live="polite"></div>
   <form class="card bg-base-100 shadow" method="post" action="/items"
@@ -940,18 +940,18 @@ need_stdout = true
 "##,
     },
     ScaffoldFile {
-        path: "templates/pages/item_edit.html",
-        contents: r#"{% extends "base.html" %}
+        path: "templates/pages/item_edit.html.jinja",
+        contents: r#"{% extends "base.html.jinja" %}
 
 {% block title %}Edit item · Webstack{% endblock %}
 
 {% block content %}
-<section class="w-full space-y-6"><h1 class="text-4xl font-bold">Edit item</h1>{% include "partials/item_edit.html" %}</section>
+<section class="w-full space-y-6"><h1 class="text-4xl font-bold">Edit item</h1>{% include "partials/item_edit.html.jinja" %}</section>
 {% endblock %}
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/item_edit.html",
+        path: "templates/partials/item_edit.html.jinja",
         contents: r##"<section id="items-region" class="space-y-4">
   <div id="item-errors" aria-live="polite"></div>
   <form class="card bg-base-100 shadow" method="post" action="/items/{{ item.id }}"
@@ -1014,7 +1014,7 @@ Unsafe forms include a hidden `_csrf` field for ordinary browser submission and 
 
 ## Errors
 
-Return `AppError` from application handlers. Public variants contain safe display text. Wrap database and other internal failures with `AppError::internal`; Webstack logs the source and renders only generic copy. The application error renderer selects `pages/error.html` for ordinary requests and `partials/error.html` for htmx.
+Return `AppError` from application handlers. Public variants contain safe display text. Wrap database and other internal failures with `AppError::internal`; Webstack logs the source and renders only generic copy. The application error renderer selects `pages/error.html.jinja` for ordinary requests and `partials/error.html.jinja` for htmx.
 
 ## Database writes
 

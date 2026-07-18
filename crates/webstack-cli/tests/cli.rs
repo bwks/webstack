@@ -54,11 +54,49 @@ fn assert_generated_favicons(target: &Path) {
     assert_ne!(favicon_light, favicon_dark);
 
     let base_template =
-        fs::read_to_string(target.join("templates/base.html")).expect("base template");
-    let error_template =
-        fs::read_to_string(target.join("templates/pages/error.html")).expect("error template");
+        fs::read_to_string(target.join("templates/base.html.jinja")).expect("base template");
+    let error_template = fs::read_to_string(target.join("templates/pages/error.html.jinja"))
+        .expect("error template");
     assert_favicon_links(&base_template);
     assert_favicon_links(&error_template);
+}
+
+fn assert_generated_template_convention(target: &Path) {
+    for relative in [
+        "templates/base.html",
+        "templates/pages/index.html",
+        "templates/pages/login.html",
+        "templates/pages/change_password.html",
+        "templates/pages/error.html",
+        "templates/pages/items.html",
+        "templates/pages/item_edit.html",
+        "templates/partials/error.html",
+        "templates/partials/items_region.html",
+        "templates/partials/item_edit.html",
+    ] {
+        assert!(
+            !target.join(relative).exists(),
+            "legacy template {relative}"
+        );
+    }
+
+    let annotations = ["src/main.rs", "src/errors.rs", "src/items.rs"]
+        .map(|relative| fs::read_to_string(target.join(relative)).expect("generated Rust source"))
+        .join("\n");
+    assert_eq!(
+        annotations
+            .matches(r#".html.jinja", ext = "html")]"#)
+            .count(),
+        9
+    );
+    assert!(!annotations.contains(r#".html")]"#));
+
+    let conventions =
+        fs::read_to_string(target.join("docs/CONVENTIONS.md")).expect("generated conventions");
+    assert!(conventions.contains("`pages/error.html.jinja`"));
+    assert!(conventions.contains("`partials/error.html.jinja`"));
+    assert!(!conventions.contains("`pages/error.html`"));
+    assert!(!conventions.contains("`partials/error.html`"));
 }
 
 fn assert_in_order(output: &str, expected: &[&str]) {
@@ -298,16 +336,16 @@ fn new_generates_an_application_owned_project() {
         "assets/images/.gitkeep",
         "assets/images/favicon-light.png",
         "assets/images/favicon-dark.png",
-        "templates/base.html",
-        "templates/pages/index.html",
-        "templates/pages/login.html",
-        "templates/pages/change_password.html",
-        "templates/pages/error.html",
-        "templates/pages/items.html",
-        "templates/pages/item_edit.html",
-        "templates/partials/error.html",
-        "templates/partials/items_region.html",
-        "templates/partials/item_edit.html",
+        "templates/base.html.jinja",
+        "templates/pages/index.html.jinja",
+        "templates/pages/login.html.jinja",
+        "templates/pages/change_password.html.jinja",
+        "templates/pages/error.html.jinja",
+        "templates/pages/items.html.jinja",
+        "templates/pages/item_edit.html.jinja",
+        "templates/partials/error.html.jinja",
+        "templates/partials/items_region.html.jinja",
+        "templates/partials/item_edit.html.jinja",
         "migrations/0001_initialize.surql",
         "docs/README.md",
         "docs/CONVENTIONS.md",
@@ -315,6 +353,7 @@ fn new_generates_an_application_owned_project() {
     ] {
         assert!(target.join(relative).is_file(), "missing {relative}");
     }
+    assert_generated_template_convention(&target);
 
     let manifest = fs::read_to_string(target.join("Cargo.toml")).expect("manifest");
     assert!(manifest.contains("name = \"inventory-app\""));
