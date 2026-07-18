@@ -136,189 +136,90 @@ strip = true
     },
     ScaffoldFile {
         path: "src/main.rs",
-        contents: r#"mod errors;
-mod items;
-
-use askama::Template;
-use askama_web::WebTemplate;
-use webstack::axum::routing::get;
-use webstack::auth::AuthMessage;
-use webstack::prelude::*;
-
-#[derive(rust_embed::RustEmbed)]
-#[folder = "assets/"]
-struct Assets;
-
-#[derive(Template, WebTemplate)]
-#[template(path = "pages/index.html.jinja", ext = "html")]
-struct IndexTemplate {
-    app_name: &'static str,
-    csrf_token: String,
-}
-
-#[derive(Template, WebTemplate)]
-#[template(path = "pages/login.html.jinja", ext = "html")]
-struct LoginTemplate {
-    csrf_token: String,
-    message: &'static str,
-}
-
-#[derive(Template, WebTemplate)]
-#[template(path = "pages/change_password.html.jinja", ext = "html")]
-struct PasswordTemplate {
-    csrf_token: String,
-    message: &'static str,
-}
-
-/// Renders the generated application's home page.
-async fn index(csrf: CsrfToken) -> IndexTemplate {
-    IndexTemplate {
-        app_name: "{{app_name}}",
-        csrf_token: csrf.as_str().to_owned(),
-    }
-}
-
-/// Renders the application-owned login page.
-async fn login_page(context: LoginPageContext) -> LoginTemplate {
-    LoginTemplate {
-        csrf_token: context.csrf_token.as_str().to_owned(),
-        message: auth_message(context.message),
-    }
-}
-
-/// Renders the application-owned mandatory password-change page.
-async fn password_page(context: PasswordChangePageContext) -> PasswordTemplate {
-    PasswordTemplate {
-        csrf_token: context.csrf_token.as_str().to_owned(),
-        message: auth_message(context.message),
-    }
-}
-
-/// Renders a minimal authenticated account endpoint.
-async fn account() -> &'static str {
-    "Authenticated account"
-}
-
-/// Renders a minimal administrator-only endpoint.
-async fn admin() -> &'static str {
-    "Administrator access"
-}
-
-/// Maps framework-safe authentication state to application-owned copy.
-fn auth_message(message: Option<AuthMessage>) -> &'static str {
-    match message {
-        Some(AuthMessage::InvalidCredentials) => "The username or password was not accepted.",
-        Some(AuthMessage::PasswordExpired) => "Change your password to continue.",
-        Some(AuthMessage::PasswordMismatch) => "The new passwords do not match.",
-        Some(AuthMessage::PasswordLength) => "Passwords must contain 12 to 128 characters.",
-        Some(AuthMessage::PasswordUnchanged) => "Choose a password different from the current password.",
-        Some(AuthMessage::PasswordChanged) => "Password changed. Sign in again.",
-        None => "",
-    }
-}
+        contents: r#"mod application;
+mod domain;
+mod web;
 
 #[webstack::tokio::main(crate = "webstack::tokio")]
-/// Composes and runs the generated Webstack application.
+/// Starts the generated Webstack application.
 async fn main() -> anyhow::Result<()> {
-    let application = Application::builder()
-        .assets::<Assets>()?
-        .error_renderer(errors::render)?
-        .auth_pages(get(login_page), get(password_page))?
-        .route("/", get(index))?
-        .authenticated_route("/account", get(account))?
-        .role_route("/admin", "admin", get(admin))?;
-    items::routes(application)?.run().await?;
+    application::run().await
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/application.rs",
+        contents: r"use crate::web;
+
+/// Composes and runs the generated Webstack application.
+pub(crate) async fn run() -> anyhow::Result<()> {
+    web::router::build()?.run().await?;
     Ok(())
 }
-"#,
+",
     },
     ScaffoldFile {
-        path: "src/errors.rs",
-        contents: r#"use askama::Template;
-use webstack::ErrorView;
-
-#[derive(Template)]
-#[template(path = "pages/error.html.jinja", ext = "html")]
-struct ErrorPageTemplate<'a> {
-    error: &'a ErrorView,
-}
-
-#[derive(Template)]
-#[template(path = "partials/error.html.jinja", ext = "html")]
-struct ErrorPartialTemplate<'a> {
-    error: &'a ErrorView,
-}
-
-/// Renders safe application errors with application-owned templates.
-pub(crate) fn render(error: &ErrorView) -> Option<String> {
-    if error.is_htmx() {
-        ErrorPartialTemplate { error }.render().ok()
-    } else {
-        ErrorPageTemplate { error }.render().ok()
-    }
-}
-"#,
+        path: "src/domain/mod.rs",
+        contents: r"pub(crate) mod items;
+",
     },
     ScaffoldFile {
-        path: "src/items.rs",
-        contents: r#"use askama::Template;
-use askama_web::WebTemplate;
-use webstack::{
-    AppError, AppState, ApplicationBuilder,
-    auth::CsrfToken,
-    axum::{
-        Form,
-        extract::{Path, State},
-        response::{IntoResponse, Redirect, Response},
-        routing::{get, post, put},
-    },
-    database::retry_write,
-    htmx::HxRequest,
-    serde::Deserialize,
-    surrealdb::types::{RecordId, RecordIdKey, SurrealValue},
-};
+        path: "src/domain/items/mod.rs",
+        contents: r"mod commands;
+mod item;
+mod queries;
 
-const ITEM_ROLE: &str = "user";
+use webstack::{AppError, AppState};
+
+pub(crate) use item::Item;
+
+/// Lists all items in stable creation order.
+pub(crate) async fn list(state: &AppState) -> Result<Vec<Item>, AppError> {
+    queries::list(state).await
+}
+
+/// Loads one item by its string record identifier.
+pub(crate) async fn get(state: &AppState, id: &str) -> Result<Item, AppError> {
+    queries::get(state, id).await
+}
+
+/// Validates and creates a shared item.
+pub(crate) async fn create(state: &AppState, name: &str) -> Result<(), AppError> {
+    let name = Item::normalize_name(name)?;
+    commands::create(state, &name).await
+}
+
+/// Validates and updates an existing shared item.
+pub(crate) async fn update(state: &AppState, id: &str, name: &str) -> Result<(), AppError> {
+    let name = Item::normalize_name(name)?;
+    commands::update(state, id, &name).await
+}
+
+/// Deletes an existing shared item.
+pub(crate) async fn delete(state: &AppState, id: &str) -> Result<(), AppError> {
+    commands::delete(state, id).await
+}
+",
+    },
+    ScaffoldFile {
+        path: "src/domain/items/item.rs",
+        contents: r#"use webstack::AppError;
 
 #[derive(Clone, Debug)]
-struct ItemView {
-    id: String,
-    name: String,
+pub(crate) struct Item {
+    pub(crate) id: String,
+    pub(crate) name: String,
 }
 
-#[derive(Debug, SurrealValue)]
-#[surreal(crate = "webstack::surrealdb::types")]
-struct ItemRecord {
-    id: RecordId,
-    name: String,
-}
-
-impl ItemRecord {
-    /// Converts a database record into display-safe application data.
-    fn into_view(self) -> Result<ItemView, AppError> {
-        let RecordIdKey::String(id) = self.id.key else {
-            return Err(AppError::internal(
-                "read item identifier",
-                std::io::Error::other("item identifier was not a string"),
-            ));
-        };
-        Ok(ItemView {
-            id,
-            name: self.name,
-        })
+impl Item {
+    /// Creates an item from trusted persistence data.
+    pub(super) fn from_parts(id: String, name: String) -> Self {
+        Self { id, name }
     }
-}
 
-#[derive(Deserialize)]
-#[serde(crate = "webstack::serde")]
-struct ItemForm {
-    name: String,
-}
-
-impl ItemForm {
     /// Returns a normalized item name or a safe validation error.
-    fn validated_name(&self) -> Result<String, AppError> {
-        let name = self.name.trim();
+    pub(super) fn normalize_name(name: &str) -> Result<String, AppError> {
+        let name = name.trim();
         if name.is_empty() || name.chars().count() > 100 {
             return Err(AppError::validation(
                 "Item names must contain between 1 and 100 characters.",
@@ -328,62 +229,101 @@ impl ItemForm {
     }
 }
 
-#[derive(Template, WebTemplate)]
-#[template(path = "pages/items.html.jinja", ext = "html")]
-struct ItemsPageTemplate {
-    items: Vec<ItemView>,
-    csrf_token: String,
+#[cfg(test)]
+mod tests {
+    use super::Item;
+
+    #[test]
+    fn item_names_are_trimmed() {
+        assert_eq!(
+            Item::normalize_name("  inventory  ").expect("valid name"),
+            "inventory"
+        );
+    }
+
+    #[test]
+    fn item_names_must_have_between_one_and_one_hundred_characters() {
+        assert!(Item::normalize_name("   ").is_err());
+        assert!(Item::normalize_name(&"a".repeat(100)).is_ok());
+        assert!(Item::normalize_name(&"a".repeat(101)).is_err());
+    }
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/domain/items/queries.rs",
+        contents: r#"use webstack::{
+    AppError, AppState,
+    surrealdb::types::{RecordId, RecordIdKey, SurrealValue},
+};
+
+use super::Item;
+
+#[derive(Debug, SurrealValue)]
+#[surreal(crate = "webstack::surrealdb::types")]
+pub(super) struct ItemRecord {
+    id: RecordId,
+    name: String,
 }
 
-#[derive(Template, WebTemplate)]
-#[template(path = "partials/items_region.html.jinja", ext = "html")]
-struct ItemsRegionTemplate {
-    items: Vec<ItemView>,
-    csrf_token: String,
+impl ItemRecord {
+    /// Converts a database record into an application item.
+    pub(super) fn into_item(self) -> Result<Item, AppError> {
+        let RecordIdKey::String(id) = self.id.key else {
+            return Err(AppError::internal(
+                "read item identifier",
+                std::io::Error::other("item identifier was not a string"),
+            ));
+        };
+        Ok(Item::from_parts(id, self.name))
+    }
 }
 
-#[derive(Template, WebTemplate)]
-#[template(path = "pages/item_edit.html.jinja", ext = "html")]
-struct ItemEditPageTemplate {
-    item: ItemView,
-    csrf_token: String,
+/// Loads all shared items in stable creation order.
+pub(super) async fn list(state: &AppState) -> Result<Vec<Item>, AppError> {
+    let mut response = state
+        .database()
+        .query("SELECT id, name, created_at FROM item ORDER BY created_at, id;")
+        .await
+        .map_err(|source| AppError::internal("load items", source))?
+        .check()
+        .map_err(|source| AppError::internal("load items", source))?;
+    response
+        .take::<Vec<ItemRecord>>(0)
+        .map_err(|source| AppError::internal("decode items", source))?
+        .into_iter()
+        .map(ItemRecord::into_item)
+        .collect()
 }
 
-#[derive(Template, WebTemplate)]
-#[template(path = "partials/item_edit.html.jinja", ext = "html")]
-struct ItemEditPartialTemplate {
-    item: ItemView,
-    csrf_token: String,
+/// Loads one item by its string record identifier.
+pub(super) async fn get(state: &AppState, id: &str) -> Result<Item, AppError> {
+    let mut response = state
+        .database()
+        .query("SELECT id, name FROM ONLY type::record('item', $id);")
+        .bind(("id", id.to_owned()))
+        .await
+        .map_err(|source| AppError::internal("load item", source))?
+        .check()
+        .map_err(|source| AppError::internal("load item", source))?;
+    response
+        .take::<Option<ItemRecord>>(0)
+        .map_err(|source| AppError::internal("decode item", source))?
+        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
+        .into_item()
 }
+"#,
+    },
+    ScaffoldFile {
+        path: "src/domain/items/commands.rs",
+        contents: r#"use webstack::{AppError, AppState, database::retry_write};
 
-/// Adds the reference Items feature to an application builder.
-pub(crate) fn routes(application: ApplicationBuilder) -> Result<ApplicationBuilder, webstack::ApplicationError> {
-    application
-        .authenticated_route("/items", get(index))?
-        .role_route("/items", ITEM_ROLE, post(create))?
-        .authenticated_route("/items/{id}/edit", get(edit))?
-        .role_route("/items/{id}", ITEM_ROLE, put(update).delete(remove).post(update))?
-        .role_route("/items/{id}/delete", ITEM_ROLE, post(remove))
-}
+use super::queries::ItemRecord;
 
-/// Renders either the full Items page or its stable htmx region.
-async fn index(
-    State(state): State<AppState>,
-    htmx: HxRequest,
-    csrf: CsrfToken,
-) -> Result<Response, AppError> {
-    render_items(&state, htmx, &csrf).await
-}
-
-/// Creates an item and then renders the post-mutation representation.
-async fn create(
-    State(state): State<AppState>,
-    htmx: HxRequest,
-    csrf: CsrfToken,
-    Form(form): Form<ItemForm>,
-) -> Result<Response, AppError> {
-    let name = form.validated_name()?;
+/// Creates a shared item inside the framework's retry boundary.
+pub(super) async fn create(state: &AppState, name: &str) -> Result<(), AppError> {
     let database = state.database().clone();
+    let name = name.to_owned();
     retry_write(|| {
         let database = database.clone();
         let name = name.clone();
@@ -397,36 +337,14 @@ async fn create(
         }
     })
     .await
-    .map_err(|source| AppError::internal("create item", source))?;
-    mutation_response(&state, htmx, &csrf).await
+    .map_err(|source| AppError::internal("create item", source))
 }
 
-/// Renders an item's full-page or partial edit form.
-async fn edit(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    htmx: HxRequest,
-    csrf: CsrfToken,
-) -> Result<Response, AppError> {
-    let item = load_item(&state, &id).await?;
-    let csrf_token = csrf.as_str().to_owned();
-    if htmx.is_htmx() {
-        Ok(ItemEditPartialTemplate { item, csrf_token }.into_response())
-    } else {
-        Ok(ItemEditPageTemplate { item, csrf_token }.into_response())
-    }
-}
-
-/// Updates an item and then renders the post-mutation representation.
-async fn update(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    htmx: HxRequest,
-    csrf: CsrfToken,
-    Form(form): Form<ItemForm>,
-) -> Result<Response, AppError> {
-    let name = form.validated_name()?;
+/// Updates a shared item inside the framework's retry boundary.
+pub(super) async fn update(state: &AppState, id: &str, name: &str) -> Result<(), AppError> {
     let database = state.database().clone();
+    let id = id.to_owned();
+    let name = name.to_owned();
     let found = retry_write(|| {
         let database = database.clone();
         let id = id.clone();
@@ -443,20 +361,16 @@ async fn update(
     })
     .await
     .map_err(|source| AppError::internal("update item", source))?;
-    if found.is_none() {
-        return Err(AppError::not_found("The requested item does not exist."));
-    }
-    mutation_response(&state, htmx, &csrf).await
+    found
+        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
+        .into_item()?;
+    Ok(())
 }
 
-/// Deletes an item and then renders the post-mutation representation.
-async fn remove(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    htmx: HxRequest,
-    csrf: CsrfToken,
-) -> Result<Response, AppError> {
+/// Deletes a shared item inside the framework's retry boundary.
+pub(super) async fn delete(state: &AppState, id: &str) -> Result<(), AppError> {
     let database = state.database().clone();
+    let id = id.to_owned();
     let found = retry_write(|| {
         let database = database.clone();
         let id = id.clone();
@@ -471,9 +385,282 @@ async fn remove(
     })
     .await
     .map_err(|source| AppError::internal("delete item", source))?;
-    if found.is_none() {
-        return Err(AppError::not_found("The requested item does not exist."));
+    found
+        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
+        .into_item()?;
+    Ok(())
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/mod.rs",
+        contents: r"mod assets;
+mod auth;
+mod errors;
+mod home;
+mod items;
+pub(crate) mod router;
+",
+    },
+    ScaffoldFile {
+        path: "src/web/assets.rs",
+        contents: r#"#[derive(rust_embed::RustEmbed)]
+#[folder = "assets/"]
+pub(crate) struct Assets;
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/errors.rs",
+        contents: r#"use askama::Template;
+use webstack::ErrorView;
+
+#[derive(Template)]
+#[template(path = "errors/page.html.jinja", ext = "html")]
+struct ErrorPageTemplate<'a> {
+    error: &'a ErrorView,
+}
+
+#[derive(Template)]
+#[template(path = "errors/partial.html.jinja", ext = "html")]
+struct ErrorPartialTemplate<'a> {
+    error: &'a ErrorView,
+}
+
+/// Renders safe application errors with application-owned templates.
+pub(crate) fn render(error: &ErrorView) -> Option<String> {
+    if error.is_htmx() {
+        ErrorPartialTemplate { error }.render().ok()
+    } else {
+        ErrorPageTemplate { error }.render().ok()
     }
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/home/mod.rs",
+        contents: r"mod handlers;
+mod views;
+
+pub(crate) use handlers::{account, admin, index};
+",
+    },
+    ScaffoldFile {
+        path: "src/web/home/handlers.rs",
+        contents: r#"use webstack::auth::CsrfToken;
+
+use super::views::IndexTemplate;
+
+/// Renders the generated application's home page.
+pub(crate) async fn index(csrf: CsrfToken) -> IndexTemplate {
+    IndexTemplate {
+        app_name: "{{app_name}}",
+        csrf_token: csrf.as_str().to_owned(),
+    }
+}
+
+/// Renders a minimal authenticated account endpoint.
+pub(crate) async fn account() -> &'static str {
+    "Authenticated account"
+}
+
+/// Renders a minimal administrator-only endpoint.
+pub(crate) async fn admin() -> &'static str {
+    "Administrator access"
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/home/views.rs",
+        contents: r#"use askama::Template;
+use askama_web::WebTemplate;
+
+#[derive(Template, WebTemplate)]
+#[template(path = "home/index.html.jinja", ext = "html")]
+pub(crate) struct IndexTemplate {
+    pub(crate) app_name: &'static str,
+    pub(crate) csrf_token: String,
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/auth/mod.rs",
+        contents: r"mod handlers;
+mod views;
+
+pub(crate) use handlers::{login_page, password_page};
+",
+    },
+    ScaffoldFile {
+        path: "src/web/auth/handlers.rs",
+        contents: r#"use webstack::auth::{AuthMessage, LoginPageContext, PasswordChangePageContext};
+
+use super::views::{LoginTemplate, PasswordTemplate};
+
+/// Renders the application-owned login page.
+pub(crate) async fn login_page(context: LoginPageContext) -> LoginTemplate {
+    LoginTemplate {
+        csrf_token: context.csrf_token.as_str().to_owned(),
+        message: auth_message(context.message),
+    }
+}
+
+/// Renders the application-owned mandatory password-change page.
+pub(crate) async fn password_page(context: PasswordChangePageContext) -> PasswordTemplate {
+    PasswordTemplate {
+        csrf_token: context.csrf_token.as_str().to_owned(),
+        message: auth_message(context.message),
+    }
+}
+
+/// Maps framework-safe authentication state to application-owned copy.
+fn auth_message(message: Option<AuthMessage>) -> &'static str {
+    match message {
+        Some(AuthMessage::InvalidCredentials) => "The username or password was not accepted.",
+        Some(AuthMessage::PasswordExpired) => "Change your password to continue.",
+        Some(AuthMessage::PasswordMismatch) => "The new passwords do not match.",
+        Some(AuthMessage::PasswordLength) => "Passwords must contain 12 to 128 characters.",
+        Some(AuthMessage::PasswordUnchanged) => {
+            "Choose a password different from the current password."
+        }
+        Some(AuthMessage::PasswordChanged) => "Password changed. Sign in again.",
+        None => "",
+    }
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/auth/views.rs",
+        contents: r#"use askama::Template;
+use askama_web::WebTemplate;
+
+#[derive(Template, WebTemplate)]
+#[template(path = "auth/login.html.jinja", ext = "html")]
+pub(crate) struct LoginTemplate {
+    pub(crate) csrf_token: String,
+    pub(crate) message: &'static str,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "auth/change_password.html.jinja", ext = "html")]
+pub(crate) struct PasswordTemplate {
+    pub(crate) csrf_token: String,
+    pub(crate) message: &'static str,
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/items/mod.rs",
+        contents: r#"mod handlers;
+mod views;
+
+use webstack::{
+    ApplicationBuilder,
+    axum::routing::{get, post, put},
+};
+
+const ITEM_ROLE: &str = "user";
+
+/// Adds the reference Items feature to an application builder.
+pub(crate) fn routes(
+    application: ApplicationBuilder,
+) -> Result<ApplicationBuilder, webstack::ApplicationError> {
+    application
+        .authenticated_route("/items", get(handlers::index))?
+        .role_route("/items", ITEM_ROLE, post(handlers::create))?
+        .authenticated_route("/items/{id}/edit", get(handlers::edit))?
+        .role_route(
+            "/items/{id}",
+            ITEM_ROLE,
+            put(handlers::update)
+                .delete(handlers::remove)
+                .post(handlers::update),
+        )?
+        .role_route("/items/{id}/delete", ITEM_ROLE, post(handlers::remove))
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/items/handlers.rs",
+        contents: r#"use webstack::{
+    AppError, AppState,
+    auth::CsrfToken,
+    axum::{
+        Form,
+        extract::{Path, State},
+        response::{IntoResponse, Redirect, Response},
+    },
+    htmx::HxRequest,
+    serde::Deserialize,
+};
+
+use crate::domain::items;
+
+#[derive(Deserialize)]
+#[serde(crate = "webstack::serde")]
+pub(super) struct ItemForm {
+    name: String,
+}
+
+use super::views::{
+    ItemEditPageTemplate, ItemEditPartialTemplate, ItemsPageTemplate, ItemsRegionTemplate,
+};
+
+/// Renders either the full Items page or its stable htmx region.
+pub(super) async fn index(
+    State(state): State<AppState>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    render_items(&state, htmx, &csrf).await
+}
+
+/// Creates an item and then renders the post-mutation representation.
+pub(super) async fn create(
+    State(state): State<AppState>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+    Form(form): Form<ItemForm>,
+) -> Result<Response, AppError> {
+    items::create(&state, &form.name).await?;
+    mutation_response(&state, htmx, &csrf).await
+}
+
+/// Renders an item's full-page or partial edit form.
+pub(super) async fn edit(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    let item = items::get(&state, &id).await?;
+    let csrf_token = csrf.as_str().to_owned();
+    if htmx.is_htmx() {
+        Ok(ItemEditPartialTemplate { item, csrf_token }.into_response())
+    } else {
+        Ok(ItemEditPageTemplate { item, csrf_token }.into_response())
+    }
+}
+
+/// Updates an item and then renders the post-mutation representation.
+pub(super) async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+    Form(form): Form<ItemForm>,
+) -> Result<Response, AppError> {
+    items::update(&state, &id, &form.name).await?;
+    mutation_response(&state, htmx, &csrf).await
+}
+
+/// Deletes an item and then renders the post-mutation representation.
+pub(super) async fn remove(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    htmx: HxRequest,
+    csrf: CsrfToken,
+) -> Result<Response, AppError> {
+    items::delete(&state, &id).await?;
     mutation_response(&state, htmx, &csrf).await
 }
 
@@ -496,7 +683,7 @@ async fn render_items(
     htmx: HxRequest,
     csrf: &CsrfToken,
 ) -> Result<Response, AppError> {
-    let items = load_items(state).await?;
+    let items = items::list(state).await?;
     let csrf_token = csrf.as_str().to_owned();
     if htmx.is_htmx() {
         Ok(ItemsRegionTemplate { items, csrf_token }.into_response())
@@ -504,39 +691,60 @@ async fn render_items(
         Ok(ItemsPageTemplate { items, csrf_token }.into_response())
     }
 }
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/items/views.rs",
+        contents: r#"use askama::Template;
+use askama_web::WebTemplate;
 
-/// Loads all shared items in stable creation order.
-async fn load_items(state: &AppState) -> Result<Vec<ItemView>, AppError> {
-    let mut response = state
-        .database()
-        .query("SELECT id, name, created_at FROM item ORDER BY created_at, id;")
-        .await
-        .map_err(|source| AppError::internal("load items", source))?
-        .check()
-        .map_err(|source| AppError::internal("load items", source))?;
-    response
-        .take::<Vec<ItemRecord>>(0)
-        .map_err(|source| AppError::internal("decode items", source))?
-        .into_iter()
-        .map(ItemRecord::into_view)
-        .collect()
+use crate::domain::items::Item;
+
+#[derive(Template, WebTemplate)]
+#[template(path = "items/index.html.jinja", ext = "html")]
+pub(super) struct ItemsPageTemplate {
+    pub(super) items: Vec<Item>,
+    pub(super) csrf_token: String,
 }
 
-/// Loads one item by its string record identifier.
-async fn load_item(state: &AppState, id: &str) -> Result<ItemView, AppError> {
-    let mut response = state
-        .database()
-        .query("SELECT id, name FROM ONLY type::record('item', $id);")
-        .bind(("id", id.to_owned()))
-        .await
-        .map_err(|source| AppError::internal("load item", source))?
-        .check()
-        .map_err(|source| AppError::internal("load item", source))?;
-    response
-        .take::<Option<ItemRecord>>(0)
-        .map_err(|source| AppError::internal("decode item", source))?
-        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
-        .into_view()
+#[derive(Template, WebTemplate)]
+#[template(path = "items/region.html.jinja", ext = "html")]
+pub(super) struct ItemsRegionTemplate {
+    pub(super) items: Vec<Item>,
+    pub(super) csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "items/edit.html.jinja", ext = "html")]
+pub(super) struct ItemEditPageTemplate {
+    pub(super) item: Item,
+    pub(super) csrf_token: String,
+}
+
+#[derive(Template, WebTemplate)]
+#[template(path = "items/edit_form.html.jinja", ext = "html")]
+pub(super) struct ItemEditPartialTemplate {
+    pub(super) item: Item,
+    pub(super) csrf_token: String,
+}
+"#,
+    },
+    ScaffoldFile {
+        path: "src/web/router.rs",
+        contents: r#"use webstack::{Application, ApplicationBuilder, axum::routing::get};
+
+use super::{assets::Assets, auth, errors, home, items};
+
+/// Builds the complete application-owned HTTP route graph.
+pub(crate) fn build() -> Result<ApplicationBuilder, webstack::ApplicationError> {
+    let application = Application::builder()
+        .assets::<Assets>()?
+        .error_renderer(errors::render)?
+        .auth_pages(get(auth::login_page), get(auth::password_page))?
+        .route("/", get(home::index))?
+        .authenticated_route("/account", get(home::account))?
+        .role_route("/admin", "admin", get(home::admin))?;
+    items::routes(application)
 }
 "#,
     },
@@ -777,7 +985,7 @@ need_stdout = true
         contents: "",
     },
     ScaffoldFile {
-        path: "templates/base.html.jinja",
+        path: "templates/layouts/base.html.jinja",
         contents: r#"<!doctype html>
 <html lang="en" data-theme="light">
   <head>
@@ -798,8 +1006,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/index.html.jinja",
-        contents: r#"{% extends "base.html.jinja" %}
+        path: "templates/home/index.html.jinja",
+        contents: r#"{% extends "layouts/base.html.jinja" %}
 
 {% block title %}{{ app_name }} · Webstack{% endblock %}
 
@@ -820,8 +1028,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/login.html.jinja",
-        contents: r#"{% extends "base.html.jinja" %}
+        path: "templates/auth/login.html.jinja",
+        contents: r#"{% extends "layouts/base.html.jinja" %}
 
 {% block title %}Sign in · Webstack{% endblock %}
 
@@ -840,8 +1048,8 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/change_password.html.jinja",
-        contents: r#"{% extends "base.html.jinja" %}
+        path: "templates/auth/change_password.html.jinja",
+        contents: r#"{% extends "layouts/base.html.jinja" %}
 
 {% block title %}Change password · Webstack{% endblock %}
 
@@ -861,7 +1069,7 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/error.html.jinja",
+        path: "templates/errors/page.html.jinja",
         contents: r#"<!doctype html>
 <html lang="en" data-theme="light">
   <head>
@@ -886,7 +1094,7 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/error.html.jinja",
+        path: "templates/errors/partial.html.jinja",
         contents: r#"<div class="alert alert-error" role="alert">
   <strong>{{ error.title() }}</strong>
   <span>{{ error.message() }}</span>
@@ -894,21 +1102,21 @@ need_stdout = true
 "#,
     },
     ScaffoldFile {
-        path: "templates/pages/items.html.jinja",
-        contents: r#"{% extends "base.html.jinja" %}
+        path: "templates/items/index.html.jinja",
+        contents: r#"{% extends "layouts/base.html.jinja" %}
 
 {% block title %}Items · Webstack{% endblock %}
 
 {% block content %}
 <section class="w-full space-y-6">
   <div><a class="link" href="/">Home</a><h1 class="text-4xl font-bold">Items</h1><p class="opacity-70">A shared reference CRUD feature.</p></div>
-  {% include "partials/items_region.html.jinja" %}
+  {% include "items/region.html.jinja" %}
 </section>
 {% endblock %}
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/items_region.html.jinja",
+        path: "templates/items/region.html.jinja",
         contents: r##"<section id="items-region" class="space-y-5">
   <div id="item-errors" aria-live="polite"></div>
   <form class="card bg-base-100 shadow" method="post" action="/items"
@@ -940,18 +1148,18 @@ need_stdout = true
 "##,
     },
     ScaffoldFile {
-        path: "templates/pages/item_edit.html.jinja",
-        contents: r#"{% extends "base.html.jinja" %}
+        path: "templates/items/edit.html.jinja",
+        contents: r#"{% extends "layouts/base.html.jinja" %}
 
 {% block title %}Edit item · Webstack{% endblock %}
 
 {% block content %}
-<section class="w-full space-y-6"><h1 class="text-4xl font-bold">Edit item</h1>{% include "partials/item_edit.html.jinja" %}</section>
+<section class="w-full space-y-6"><h1 class="text-4xl font-bold">Edit item</h1>{% include "items/edit_form.html.jinja" %}</section>
 {% endblock %}
 "#,
     },
     ScaffoldFile {
-        path: "templates/partials/item_edit.html.jinja",
+        path: "templates/items/edit_form.html.jinja",
         contents: r##"<section id="items-region" class="space-y-4">
   <div id="item-errors" aria-live="polite"></div>
   <form class="card bg-base-100 shadow" method="post" action="/items/{{ item.id }}"
@@ -1014,20 +1222,24 @@ Unsafe forms include a hidden `_csrf` field for ordinary browser submission and 
 
 ## Errors
 
-Return `AppError` from application handlers. Public variants contain safe display text. Wrap database and other internal failures with `AppError::internal`; Webstack logs the source and renders only generic copy. The application error renderer selects `pages/error.html.jinja` for ordinary requests and `partials/error.html.jinja` for htmx.
+Use the shared `AppError` in domain contexts and web handlers. Public variants contain safe display text. Wrap database and other internal failures with `AppError::internal`; Webstack logs the source and renders only generic copy. Applications do not need a separate error type for every domain. The application error renderer selects `errors/page.html.jinja` for ordinary requests and `errors/partial.html.jinja` for htmx.
 
 ## Database writes
 
-Use `retry_write` only around transaction-safe database operations. Never perform email, network calls, logging with business meaning, or other external side effects inside its closure because the closure can run four times. Render templates and perform follow-up reads after the retried operation.
+Put read-only persistence in a domain's `queries.rs` and retried mutations in its `commands.rs`. Use `retry_write` only around transaction-safe database operations. Never perform email, network calls, logging with business meaning, or other external side effects inside its closure because the closure can run four times. Render templates and perform follow-up reads after the retried operation.
 "#,
     },
     ScaffoldFile {
         path: "docs/architecture.md",
         contents: r"# Architecture
 
-This application uses the Webstack facade and owns its domain code, templates, assets, and migrations.
+This application uses a Phoenix-inspired domain/web split while consuming only the Webstack facade.
 
-Webstack owns the local account backend, SurrealDB session store, CSRF checks, and route guards. The application owns authentication page templates and display copy.
+`src/application.rs` is the composition boundary. `src/web/router.rs` owns the HTTP route graph. Feature handlers and Askama views live under `src/web`, while business models and persistence operations live under `src/domain`.
+
+Each domain exposes a small context API from its `mod.rs`. The Items example provides `list`, `get`, `create`, `update`, and `delete`; web handlers call those functions instead of importing private queries or commands. Models and business validation live with the domain, read-only SurrealDB access belongs in `queries.rs`, and retry-safe writes belong in `commands.rs`.
+
+Templates use the same feature names under `templates/`, with shared layouts under `templates/layouts`. Webstack owns the local account backend, SurrealDB session store, CSRF checks, and route guards. The application owns its domain code, handlers, views, templates, assets, migrations, and authentication display copy.
 ",
     },
     ScaffoldFile {

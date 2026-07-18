@@ -53,9 +53,9 @@ fn assert_generated_favicons(target: &Path) {
     assert!(favicon_dark.starts_with(b"\x89PNG\r\n\x1a\n"));
     assert_ne!(favicon_light, favicon_dark);
 
-    let base_template =
-        fs::read_to_string(target.join("templates/base.html.jinja")).expect("base template");
-    let error_template = fs::read_to_string(target.join("templates/pages/error.html.jinja"))
+    let base_template = fs::read_to_string(target.join("templates/layouts/base.html.jinja"))
+        .expect("base template");
+    let error_template = fs::read_to_string(target.join("templates/errors/page.html.jinja"))
         .expect("error template");
     assert_favicon_links(&base_template);
     assert_favicon_links(&error_template);
@@ -64,15 +64,25 @@ fn assert_generated_favicons(target: &Path) {
 fn assert_generated_template_convention(target: &Path) {
     for relative in [
         "templates/base.html",
+        "templates/base.html.jinja",
         "templates/pages/index.html",
+        "templates/pages/index.html.jinja",
         "templates/pages/login.html",
+        "templates/pages/login.html.jinja",
         "templates/pages/change_password.html",
+        "templates/pages/change_password.html.jinja",
         "templates/pages/error.html",
+        "templates/pages/error.html.jinja",
         "templates/pages/items.html",
+        "templates/pages/items.html.jinja",
         "templates/pages/item_edit.html",
+        "templates/pages/item_edit.html.jinja",
         "templates/partials/error.html",
+        "templates/partials/error.html.jinja",
         "templates/partials/items_region.html",
+        "templates/partials/items_region.html.jinja",
         "templates/partials/item_edit.html",
+        "templates/partials/item_edit.html.jinja",
     ] {
         assert!(
             !target.join(relative).exists(),
@@ -80,9 +90,14 @@ fn assert_generated_template_convention(target: &Path) {
         );
     }
 
-    let annotations = ["src/main.rs", "src/errors.rs", "src/items.rs"]
-        .map(|relative| fs::read_to_string(target.join(relative)).expect("generated Rust source"))
-        .join("\n");
+    let annotations = [
+        "src/web/errors.rs",
+        "src/web/home/views.rs",
+        "src/web/auth/views.rs",
+        "src/web/items/views.rs",
+    ]
+    .map(|relative| fs::read_to_string(target.join(relative)).expect("generated Rust source"))
+    .join("\n");
     assert_eq!(
         annotations
             .matches(r#".html.jinja", ext = "html")]"#)
@@ -93,8 +108,8 @@ fn assert_generated_template_convention(target: &Path) {
 
     let conventions =
         fs::read_to_string(target.join("docs/CONVENTIONS.md")).expect("generated conventions");
-    assert!(conventions.contains("`pages/error.html.jinja`"));
-    assert!(conventions.contains("`partials/error.html.jinja`"));
+    assert!(conventions.contains("`errors/page.html.jinja`"));
+    assert!(conventions.contains("`errors/partial.html.jinja`"));
     assert!(!conventions.contains("`pages/error.html`"));
     assert!(!conventions.contains("`partials/error.html`"));
 }
@@ -122,6 +137,59 @@ fn assert_generation_progress(output: &str, target: &Path) {
     );
     assert!(!output.contains("Downloading and verifying frontend assets"));
     assert!(!output.contains("Installing frontend assets"));
+}
+
+fn assert_generated_application_files(target: &Path) {
+    for relative in [
+        "Cargo.toml",
+        "Dockerfile",
+        ".dockerignore",
+        ".github/workflows/ci.yml",
+        "deploy/inventory-app.service",
+        "src/main.rs",
+        "src/application.rs",
+        "src/domain/mod.rs",
+        "src/domain/items/mod.rs",
+        "src/domain/items/item.rs",
+        "src/domain/items/queries.rs",
+        "src/domain/items/commands.rs",
+        "src/web/mod.rs",
+        "src/web/router.rs",
+        "src/web/assets.rs",
+        "src/web/errors.rs",
+        "src/web/home/mod.rs",
+        "src/web/home/handlers.rs",
+        "src/web/home/views.rs",
+        "src/web/auth/mod.rs",
+        "src/web/auth/handlers.rs",
+        "src/web/auth/views.rs",
+        "src/web/items/mod.rs",
+        "src/web/items/handlers.rs",
+        "src/web/items/views.rs",
+        "webstack.toml",
+        "webstack.example.toml",
+        "assets/css/input.css",
+        "assets/js/htmx.min.js",
+        "assets/images/.gitkeep",
+        "assets/images/favicon-light.png",
+        "assets/images/favicon-dark.png",
+        "templates/layouts/base.html.jinja",
+        "templates/home/index.html.jinja",
+        "templates/auth/login.html.jinja",
+        "templates/auth/change_password.html.jinja",
+        "templates/errors/page.html.jinja",
+        "templates/errors/partial.html.jinja",
+        "templates/items/index.html.jinja",
+        "templates/items/region.html.jinja",
+        "templates/items/edit.html.jinja",
+        "templates/items/edit_form.html.jinja",
+        "migrations/0001_initialize.surql",
+        "docs/README.md",
+        "docs/CONVENTIONS.md",
+        "tests/application.rs",
+    ] {
+        assert!(target.join(relative).is_file(), "missing {relative}");
+    }
 }
 
 fn impl_target(item: &ItemImpl) -> Option<String> {
@@ -270,6 +338,34 @@ fn assert_documented_rust_file(path: &Path) {
     assert_documented_functions(&syntax.items, path);
 }
 
+fn assert_generated_rust_policy(root: &Path) {
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                fs::read_dir(&path)
+                    .expect("Rust source directory")
+                    .map(|entry| entry.expect("Rust source entry").path()),
+            );
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            let source = fs::read_to_string(&path).expect("Rust source");
+            let syntax = syn::parse_file(&source).expect("valid Rust source");
+            assert_documented_functions(&syntax.items, &path);
+            assert_type_and_impl_order(&syntax.items, &path);
+
+            let mut visitor = LocalTypeVisitor {
+                found_local_type: false,
+            };
+            visitor.visit_file(&syntax);
+            assert!(
+                !visitor.found_local_type,
+                "{} declares a struct or enum inside a block",
+                path.display()
+            );
+        }
+    }
+}
+
 fn assert_success(output: &std::process::Output) {
     assert!(
         output.status.success(),
@@ -320,39 +416,7 @@ fn new_generates_an_application_owned_project() {
         .expect("CLI should run");
     assert_success(&output);
 
-    for relative in [
-        "Cargo.toml",
-        "Dockerfile",
-        ".dockerignore",
-        ".github/workflows/ci.yml",
-        "deploy/inventory-app.service",
-        "src/main.rs",
-        "src/errors.rs",
-        "src/items.rs",
-        "webstack.toml",
-        "webstack.example.toml",
-        "assets/css/input.css",
-        "assets/js/htmx.min.js",
-        "assets/images/.gitkeep",
-        "assets/images/favicon-light.png",
-        "assets/images/favicon-dark.png",
-        "templates/base.html.jinja",
-        "templates/pages/index.html.jinja",
-        "templates/pages/login.html.jinja",
-        "templates/pages/change_password.html.jinja",
-        "templates/pages/error.html.jinja",
-        "templates/pages/items.html.jinja",
-        "templates/pages/item_edit.html.jinja",
-        "templates/partials/error.html.jinja",
-        "templates/partials/items_region.html.jinja",
-        "templates/partials/item_edit.html.jinja",
-        "migrations/0001_initialize.surql",
-        "docs/README.md",
-        "docs/CONVENTIONS.md",
-        "tests/application.rs",
-    ] {
-        assert!(target.join(relative).is_file(), "missing {relative}");
-    }
+    assert_generated_application_files(&target);
     assert_generated_template_convention(&target);
 
     let manifest = fs::read_to_string(target.join("Cargo.toml")).expect("manifest");
@@ -365,18 +429,50 @@ fn new_generates_an_application_owned_project() {
     assert!(manifest.contains("lto = true"));
     let main = fs::read_to_string(target.join("src/main.rs")).expect("main source");
     assert!(main.contains("async fn main() -> anyhow::Result<()>"));
-    assert!(main.contains("Application::builder()"));
-    assert!(!main.contains("ApplicationSettings"));
-    assert!(main.contains(".assets::<Assets>()?"));
-    assert!(main.contains(".error_renderer(errors::render)?"));
-    assert!(main.contains(".auth_pages(get(login_page), get(password_page))?"));
-    assert!(main.contains(".authenticated_route(\"/account\", get(account))?"));
-    assert!(main.contains(".role_route(\"/admin\", \"admin\", get(admin))?"));
+    assert!(main.contains("application::run().await"));
+    assert!(!main.contains("Application::builder()"));
+    let application =
+        fs::read_to_string(target.join("src/application.rs")).expect("application source");
+    assert!(application.contains("web::router::build()?.run().await?"));
+    let router = fs::read_to_string(target.join("src/web/router.rs")).expect("router source");
+    assert!(router.contains("Application::builder()"));
+    assert!(!router.contains("ApplicationSettings"));
+    assert!(router.contains(".assets::<Assets>()?"));
+    assert!(router.contains(".error_renderer(errors::render)?"));
+    assert!(router.contains(".auth_pages(get(auth::login_page), get(auth::password_page))?"));
+    assert!(router.contains(".authenticated_route(\"/account\", get(home::account))?"));
+    assert!(router.contains(".role_route(\"/admin\", \"admin\", get(home::admin))?"));
     assert!(!main.contains("struct Migrations"));
     assert!(!main.contains(".migrations::<"));
-    assert!(main.contains(".route(\"/\", get(index))?"));
-    assert!(main.contains(".run()"));
+    assert!(router.contains(".route(\"/\", get(home::index))?"));
     assert!(!main.contains("webstack::observability::init"));
+    assert!(!target.join("src/errors.rs").exists());
+    assert!(!target.join("src/items.rs").exists());
+
+    let item_context =
+        fs::read_to_string(target.join("src/domain/items/mod.rs")).expect("item context");
+    for function in ["list", "get", "create", "update", "delete"] {
+        assert!(
+            item_context.contains(&format!("pub(crate) async fn {function}")),
+            "missing Items context function {function}"
+        );
+    }
+    let item_queries =
+        fs::read_to_string(target.join("src/domain/items/queries.rs")).expect("item queries");
+    let item_commands =
+        fs::read_to_string(target.join("src/domain/items/commands.rs")).expect("item commands");
+    let item_handlers =
+        fs::read_to_string(target.join("src/web/items/handlers.rs")).expect("item handlers");
+    assert!(item_queries.contains("SELECT id, name"));
+    assert!(!item_queries.contains("retry_write"));
+    assert!(item_commands.contains("retry_write"));
+    assert!(item_commands.contains("CREATE item"));
+    assert!(item_commands.contains("UPDATE ONLY"));
+    assert!(item_commands.contains("DELETE ONLY"));
+    assert!(!item_handlers.contains("retry_write"));
+    assert!(!item_handlers.contains(".query("));
+    assert!(item_handlers.contains("Form(form): Form<ItemForm>"));
+    assert!(item_handlers.contains("items::create(&state, &form.name).await?"));
     let local_config = fs::read_to_string(target.join("webstack.toml")).expect("local config");
     let example_config =
         fs::read_to_string(target.join("webstack.example.toml")).expect("example config");
@@ -759,7 +855,7 @@ fn production_and_generated_functions_are_documented() {
         .output()
         .expect("CLI should run");
     assert_success(&output);
-    assert_documented_rust_file(&target.join("src/main.rs"));
+    assert_generated_rust_policy(&target.join("src"));
     assert_documented_rust_file(&target.join("build.rs"));
 }
 

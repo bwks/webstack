@@ -37,9 +37,10 @@ Generated binaries use `anyhow` at startup so configuration, initialization, and
 server failures can carry operational context. Application HTTP handlers use
 Webstack's typed `AppError` rather than returning `anyhow::Error` directly.
 
-Domain libraries inside a larger application should define concrete errors with
-`thiserror` and convert them to `AppError` at the HTTP boundary. Internal error
-details are logged, not exposed in browser responses.
+Generated domain contexts and HTTP handlers share `AppError`; applications do
+not need to define an error type for every domain. Use its safe public variants
+for expected failures and `AppError::internal` for failures whose details must
+be logged but not exposed in browser responses.
 
 Register application-owned error templates with `error_renderer`. The renderer
 receives an `ErrorView` containing only the status, title, safe public message,
@@ -78,9 +79,13 @@ must remain disabled until that runtime milestone is implemented.
 
 ## Layout
 
-- `src/` contains the composition root and application features.
+- `src/application.rs` is the process composition boundary.
+- `src/domain/` contains models, validation, and context APIs. Each context keeps
+  read-only persistence in `queries.rs` and retried writes in `commands.rs`.
+- `src/web/` contains the central router plus feature handlers and Askama views.
 - `assets/css`, `assets/js`, and `assets/images` contain browser assets.
-- `templates/` are application-owned compile-time inputs.
+- `templates/` contains feature-grouped application-owned compile-time inputs,
+  with shared layouts under `templates/layouts/`.
 - `migrations/` is the application-owned runtime history deployed beside the binary.
 - `docs/` describes application-specific architecture and operations.
 - `tests/` verifies the application through supported facade APIs.
