@@ -294,6 +294,7 @@ fn new_generates_an_application_owned_project() {
     let manifest = fs::read_to_string(target.join("Cargo.toml")).expect("manifest");
     assert!(manifest.contains("name = \"inventory-app\""));
     assert!(manifest.contains("branch = \"framework-baseline\""));
+    assert!(manifest.contains("\n[workspace]\n"));
     assert!(manifest.contains("anyhow = \"1\""));
     assert!(manifest.contains("askama = \"0.16\""));
     assert!(manifest.contains("[profile.release]"));
@@ -348,6 +349,36 @@ fn new_generates_an_application_owned_project() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("git init -b main"));
     assert!(stdout.contains("just dev"));
+}
+
+#[test]
+fn generated_application_nested_in_framework_is_its_own_workspace() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let parent = tempfile::Builder::new()
+        .prefix("nested-generated-app-")
+        .tempdir_in(workspace)
+        .expect("temporary directory inside framework workspace");
+    let target = parent.path().join("nested-app");
+    let generated = webstack()
+        .args(["new", "nested-app"])
+        .arg("--directory")
+        .arg(&target)
+        .arg("--framework-path")
+        .arg(workspace)
+        .output()
+        .expect("CLI should run");
+    assert_success(&generated);
+
+    let metadata = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .env("CARGO_NET_OFFLINE", "true")
+        .current_dir(target)
+        .output()
+        .expect("cargo metadata should run");
+    assert_success(&metadata);
 }
 
 #[test]

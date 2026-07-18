@@ -8,6 +8,9 @@ assets, migrations, documentation, `Cargo.toml`, and `Cargo.lock`.
 
 Framework commands do not overwrite application-owned files or dependency
 declarations. An existing generation target is always rejected, even when empty.
+The generated manifest includes an empty `[workspace]` table, so the application
+remains an independent Cargo workspace even when generated inside another Rust
+workspace directory.
 
 ## Dependencies
 

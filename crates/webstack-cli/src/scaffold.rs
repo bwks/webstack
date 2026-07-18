@@ -116,6 +116,8 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 
+[workspace]
+
 [dependencies]
 anyhow = "1"
 askama = "0.16"
