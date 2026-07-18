@@ -35,14 +35,18 @@ askama = "0.16.0"
 askama_web = { version = "0.16.0", features = ["axum-0.8", "tracing-0.1"] }
 axum = "0.8.9"
 axum-login = "0.18.0"
+axum-server = { version = "0.8.0", default-features = false, features = ["tls-rustls"] }
 base64 = "0.22.1"
 clap = { version = "4.6.1", features = ["derive"] }
+futures-util = "0.3.31"
 garde = { version = "0.23.0", features = ["derive"] }
 form_urlencoded = "1.2.2"
 mime_guess = "2.0.5"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 rand = "0.8.5"
+rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs"] }
 rust-embed = "8.11.0"
+rustls-acme = { version = "0.15.3", default-features = false, features = ["aws-lc-rs", "axum", "tls12", "webpki-roots"] }
 surrealdb = { version = "=3.2.1", default-features = false, features = ["kv-rocksdb"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
 semver = "1.0.27"

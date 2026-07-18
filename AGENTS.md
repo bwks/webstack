@@ -39,8 +39,10 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
    first (enforced by `just release` ordering and a `build.rs` check that fails a
    release compile if `static/app.css` is missing).
 5. **TLS in-process, three modes:** `acme` (prod), `self_signed` (dev, ephemeral
-   rcgen cert generated in memory at startup), `disabled` (plain HTTP).
-   Default ports: HTTPS 8443, HTTP 8080 (no elevated privileges needed).
+   rcgen cert generated in memory at startup), `disabled` (plain HTTP on
+   `http_port`). TLS modes serve HTTPS on `https_port` and may bind `http_port`
+   as a redirect listener. Default ports: HTTPS 8443, HTTP 8080 (no elevated
+   privileges needed).
 6. **Auth is sessions, not JWT.** Server-rendered htmx app → cookie sessions via
    tower-sessions, backed by SurrealDB (custom session store — no extra infra).
    Passwords hashed with argon2id. Authorisation is role-based: `roles: [string]`
@@ -274,7 +276,7 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
     cert/key fed to rustls config in memory — no files
   - `acme`: rustls-acme with TLS-ALPN-01, DirCache at `acme_cache_dir`,
     staging flag honoured, wired into axum-server
-  - `disabled`: plain HTTP on https_port (naming stays consistent)
+  - `disabled`: plain HTTP on `http_port`
 - Optional port-8080 listener that 301s everything to https (skipped when
   `http_redirect = false` or mode = disabled)
 - **Done when:** dev serves https://localhost:8443 with self-signed cert;

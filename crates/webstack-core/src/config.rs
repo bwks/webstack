@@ -93,16 +93,34 @@ impl Config {
 
     /// Aggregates validation failures into Webstack's typed configuration error.
     fn validate(&self) -> Result<(), ConfigError> {
-        Validate::validate(self).map_err(|report| ConfigError::Validation {
-            issues: report
-                .into_inner()
-                .into_iter()
-                .map(|(path, error)| ValidationIssue {
-                    field: path.to_string(),
-                    message: error.to_string(),
-                })
-                .collect(),
-        })
+        let mut issues = Validate::validate(self)
+            .err()
+            .map(|report| {
+                report
+                    .into_inner()
+                    .into_iter()
+                    .map(|(path, error)| ValidationIssue {
+                        field: path.to_string(),
+                        message: error.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if self.tls.mode != TlsMode::Disabled
+            && self.server.http_redirect
+            && self.server.http_port == self.server.https_port
+        {
+            issues.push(ValidationIssue {
+                field: "server.http_port".to_owned(),
+                message: "must differ from server.https_port when HTTP redirects are enabled"
+                    .to_owned(),
+            });
+        }
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(ConfigError::Validation { issues })
+        }
     }
 }
 
@@ -143,9 +161,9 @@ impl Default for AssetsConfig {
 pub struct ServerConfig {
     #[garde(skip)]
     pub bind_addr: IpAddr,
-    #[garde(skip)]
+    #[garde(range(min = 1))]
     pub https_port: u16,
-    #[garde(skip)]
+    #[garde(range(min = 1))]
     pub http_port: u16,
     #[garde(skip)]
     pub http_redirect: bool,
@@ -177,9 +195,9 @@ pub enum TlsMode {
 pub struct TlsConfig {
     #[garde(skip)]
     pub mode: TlsMode,
-    #[garde(if(cond = self.mode == TlsMode::Acme, required, inner(custom(non_blank))))]
+    #[garde(if(cond = self.mode == TlsMode::Acme, required, inner(custom(acme_domain))))]
     pub domain: Option<String>,
-    #[garde(if(cond = self.mode == TlsMode::Acme, required, inner(custom(non_blank))))]
+    #[garde(if(cond = self.mode == TlsMode::Acme, required, inner(custom(email_address))))]
     pub acme_email: Option<String>,
     #[garde(if(cond = self.mode == TlsMode::Acme, custom(nonempty_path)))]
     pub acme_cache_dir: PathBuf,
@@ -365,6 +383,52 @@ fn semantic_version<Context>(value: &str, _context: &Context) -> garde::Result {
     semver::Version::parse(value)
         .map(|_| ())
         .map_err(|_| garde::Error::new("must be a semantic version such as 4.3.1"))
+}
+
+/// Validates one DNS hostname accepted for an ACME certificate order.
+fn acme_domain<Context>(value: &str, _context: &Context) -> garde::Result {
+    let valid = value.len() <= 253
+        && value.contains('.')
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "must be a DNS hostname such as app.example.com",
+        ))
+    }
+}
+
+/// Validates one basic ACME account contact email address.
+fn email_address<Context>(value: &str, _context: &Context) -> garde::Result {
+    let mut parts = value.split('@');
+    let local = parts.next().unwrap_or_default();
+    let domain = parts.next().unwrap_or_default();
+    if !local.is_empty()
+        && !domain.is_empty()
+        && parts.next().is_none()
+        && !value.chars().any(char::is_whitespace)
+    {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "must be an email address such as admin@example.com",
+        ))
+    }
 }
 
 /// Reads one Unicode environment variable as an optional value.
@@ -587,6 +651,38 @@ filter = "not a [ valid filter"
         assert!(fields.iter().any(|field| field == "tls.domain"));
         assert!(fields.iter().any(|field| field == "tls.acme_email"));
         assert!(fields.iter().any(|field| field == "tls.acme_cache_dir"));
+    }
+
+    #[test]
+    fn listener_ports_and_acme_identity_are_validated_before_binding() {
+        let mut config = Config::default();
+        config.server.http_port = 0;
+        config.server.https_port = 0;
+        config.server.http_redirect = true;
+        config.tls.mode = TlsMode::Acme;
+        config.tls.domain = Some("https://example.com/path".to_owned());
+        config.tls.acme_email = Some("not-an-email".to_owned());
+
+        let fields = validation_fields(config.validate().expect_err("invalid TLS listeners"));
+
+        for expected in [
+            "server.http_port",
+            "server.https_port",
+            "tls.domain",
+            "tls.acme_email",
+        ] {
+            assert!(
+                fields.iter().any(|field| field == expected),
+                "missing {expected}"
+            );
+        }
+
+        config.server.http_port = 8443;
+        config.server.https_port = 8443;
+        config.tls.domain = Some("app.example.com".to_owned());
+        config.tls.acme_email = Some("admin@example.com".to_owned());
+        let fields = validation_fields(config.validate().expect_err("colliding TLS listeners"));
+        assert!(fields.iter().any(|field| field == "server.http_port"));
     }
 
     #[test]

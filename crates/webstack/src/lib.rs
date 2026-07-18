@@ -18,6 +18,12 @@ pub mod htmx {
     pub use webstack_web::htmx::HxRequest;
 }
 
+pub mod tls {
+    //! Supported TLS runtime errors.
+
+    pub use webstack_web::tls::TlsError;
+}
+
 pub mod auth {
     //! Supported authentication API for application handlers and templates.
 

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future, net::SocketAddr, path::Path, sync::Arc};
+use std::{convert::Infallible, path::Path, sync::Arc};
 
 use axum::{
     Extension, Json, Router,
@@ -11,7 +11,6 @@ use axum::{
 use axum_login::AuthManagerLayerBuilder;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::net::TcpListener;
 use tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer};
 use webstack_auth::{
     AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole, SurrealSessionStore,
@@ -26,6 +25,7 @@ use webstack_db::{Database, DatabaseError};
 use crate::{
     error::{ErrorMarker, ErrorRenderer, ErrorView, render_error},
     htmx::HxRequest,
+    tls::TlsError,
 };
 
 use rust_embed::RustEmbed;
@@ -190,8 +190,8 @@ impl ApplicationBuilder {
     ///
     /// # Errors
     ///
-    /// Returns a typed startup or server failure. TLS and backups fail clearly
-    /// until their implementation milestones are complete.
+    /// Returns a typed startup, TLS, or server failure. Backups fail clearly
+    /// until their implementation milestone is complete.
     pub async fn run(self) -> Result<(), ApplicationError> {
         let config = Config::load()?;
         validate_runtime_features(&config)?;
@@ -206,18 +206,12 @@ impl ApplicationBuilder {
         webstack_db::migrate(&database, Path::new("./migrations")).await?;
         bootstrap_admin(&database, &config.auth, config.environment).await?;
 
-        let address = SocketAddr::new(config.server.bind_addr, config.server.http_port);
-        let listener = TcpListener::bind(address)
-            .await
-            .map_err(|source| ApplicationError::Bind { address, source })?;
-        let local_address = listener
-            .local_addr()
-            .map_err(|source| ApplicationError::Bind { address, source })?;
-        tracing::info!(%local_address, "HTTP server listening");
-
         let cleanup = spawn_session_cleanup(database.clone());
-        let router = self.into_router(Arc::new(config), database);
-        let result = serve(listener, router, shutdown_signal()).await;
+        let config = Arc::new(config);
+        let router = self.into_router(Arc::clone(&config), database);
+        let result = crate::tls::serve(&config, router, shutdown_signal())
+            .await
+            .map_err(ApplicationError::Tls);
         cleanup.abort();
         result
     }
@@ -309,14 +303,8 @@ pub enum ApplicationError {
     Database(#[from] DatabaseError),
     #[error(transparent)]
     Auth(#[from] AuthError),
-    #[error("cannot bind HTTP listener at {address}")]
-    Bind {
-        address: SocketAddr,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("HTTP server failed")]
-    Serve(#[source] std::io::Error),
+    #[error(transparent)]
+    Tls(#[from] TlsError),
 }
 
 /// Re-renders only responses explicitly marked by [`crate::AppError`].
@@ -359,28 +347,10 @@ fn unavailable_health(error: &impl std::fmt::Display) -> Response {
 
 /// Rejects configured runtime features that belong to later milestones.
 fn validate_runtime_features(config: &Config) -> Result<(), ApplicationError> {
-    if config.tls.mode != TlsMode::Disabled {
-        return Err(ApplicationError::UnsupportedFeature("TLS"));
-    }
     if config.backup.enabled {
         return Err(ApplicationError::UnsupportedFeature("backup"));
     }
     Ok(())
-}
-
-/// Serves a router until the supplied shutdown future completes.
-async fn serve(
-    listener: TcpListener,
-    router: Router,
-    shutdown: impl Future<Output = ()> + Send + 'static,
-) -> Result<(), ApplicationError> {
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .map_err(ApplicationError::Serve)
 }
 
 /// Checks an application role against the public lowercase snake-case contract.
@@ -445,17 +415,12 @@ mod tests {
         routing::{get, post},
     };
     use surrealdb::{Surreal, engine::local::Mem};
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::{TcpListener, TcpStream},
-        sync::oneshot,
-    };
     use tower::ServiceExt;
     use webstack_auth::{LoginPageContext, PasswordChangePageContext, bootstrap_admin};
     use webstack_core::config::{Config, Environment, TlsMode};
     use webstack_db::Database;
 
-    use super::{AppState, Application, ApplicationError, serve, validate_runtime_features};
+    use super::{AppState, Application, ApplicationError, validate_runtime_features};
     use crate::AppError;
 
     async fn test_database() -> Database {
@@ -684,6 +649,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tls_modes_mark_session_cookies_secure() {
+        let mut config = Config::default();
+        config.tls.mode = TlsMode::SelfSigned;
+        let router =
+            Application::builder()
+                .auth_pages(
+                    get(|context: LoginPageContext| async move {
+                        context.csrf_token.as_str().to_owned()
+                    }),
+                    get(|context: PasswordChangePageContext| async move {
+                        context.csrf_token.as_str().to_owned()
+                    }),
+                )
+                .expect("auth pages")
+                .into_router(Arc::new(config), auth_database().await);
+        let response = router
+            .oneshot(Request::get("/login").body(Body::empty()).expect("request"))
+            .await
+            .expect("login page");
+        let session_cookie = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .find(|value| value.starts_with("webstack.sid="))
+            .expect("session cookie");
+        assert!(session_cookie.contains("; Secure"), "{session_cookie}");
+    }
+
+    #[tokio::test]
     async fn anonymous_htmx_and_csrf_failures_have_protocol_aware_statuses() {
         let router = Application::builder()
             .authenticated_route("/account", get(|| async { "account" }))
@@ -856,48 +851,12 @@ mod tests {
     }
 
     #[test]
-    fn deferred_features_fail_clearly() {
+    fn deferred_backup_fails_clearly() {
         let mut config = Config::default();
-        config.tls.mode = TlsMode::SelfSigned;
-        assert!(matches!(
-            validate_runtime_features(&config),
-            Err(ApplicationError::UnsupportedFeature("TLS"))
-        ));
-
-        config.tls.mode = TlsMode::Disabled;
         config.backup.enabled = true;
         assert!(matches!(
             validate_runtime_features(&config),
             Err(ApplicationError::UnsupportedFeature("backup"))
         ));
-    }
-
-    #[tokio::test]
-    async fn real_listener_serves_and_stops_on_injected_shutdown() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
-        let address = listener.local_addr().expect("address");
-        let router =
-            Application::builder().into_router(Arc::new(Config::default()), test_database().await);
-        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-        let server = tokio::spawn(serve(listener, router, async move {
-            let _result = shutdown_receiver.await;
-        }));
-
-        let mut connection = TcpStream::connect(address).await.expect("connect");
-        connection
-            .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-            .await
-            .expect("request");
-        let mut response = Vec::new();
-        connection
-            .read_to_end(&mut response)
-            .await
-            .expect("response");
-        let response = String::from_utf8(response).expect("UTF-8 response");
-        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
-        assert!(response.ends_with("{\"status\":\"ok\"}"), "{response}");
-
-        shutdown_sender.send(()).expect("shutdown");
-        server.await.expect("server task").expect("server result");
     }
 }

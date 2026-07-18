@@ -43,13 +43,18 @@ records delivery status.
 - Role-gated shared Items CRUD reference feature in generated applications and the demo
 - Stable region, validation-target, write-retry, and side-effect conventions
 
-## Next
-
 ### Phase 3: TLS
 
-Add in-process disabled, self-signed, and ACME TLS modes with HTTP redirects.
+- Added disabled HTTP, ephemeral self-signed HTTPS, and ACME HTTPS modes.
+- Added optional HTTP-to-HTTPS redirects with path and query preservation.
+- Added coordinated listener shutdown and secure session cookies in TLS modes.
+
+## Next
+
+### Phase 6: Backup to R2
+
+Add logical SurrealDB backup, R2 retention, and restore.
 
 ## Later
 
-1. Phase 6: logical SurrealDB backup, R2 retention, and restore
-2. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts
+1. Phase 7: runtime hardening, broader integration coverage, and deployment artifacts

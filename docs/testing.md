@@ -7,6 +7,9 @@
 - CLI tests invoke the compiled `webstack` executable in temporary directories.
 - Demo and generated-project tests ensure applications use only facade APIs.
 - Process tests cover listeners, TLS, shutdown, and isolated release binaries.
+- TLS integration tests exercise disabled HTTP, self-signed HTTPS, redirect
+  target preservation, coordinated shutdown, and ACME configuration without
+  contacting the certificate authority.
 
 ## Isolation
 

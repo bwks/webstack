@@ -14,6 +14,10 @@ Start the server and CSS watcher together:
 just demo-dev
 ```
 
-Open `http://127.0.0.1:42069`. The local bootstrap login is `admin` / `changeme`.
+Open `http://127.0.0.1:42069`. The HTTP listener redirects to the demo's
+self-signed HTTPS listener at `https://127.0.0.1:7337`; accept the browser's
+local certificate warning. From the development LAN, use
+`http://10.100.58.10:42069` or `https://10.100.58.10:7337`. The local bootstrap
+login is `admin` / `changeme`.
 
 Generated CSS and downloaded tools are intentionally ignored. Release builds require `just demo-css` first; templates, CSS, htmx, and the theme script are then embedded in the executable.

@@ -69,8 +69,9 @@ which reports readiness only after a trivial query succeeds against the shared
 database. `/login`, `/logout`, and `/change-password` are reserved for the
 authentication runtime; applications own their GET page templates through
 `auth_pages`. The generated shared Items feature demonstrates authenticated
-reads and `user`-role mutations. TLS and backup settings are parsed now but must
-remain disabled until their runtime milestones are implemented.
+reads and `user`-role mutations. The TLS settings select plain HTTP,
+self-signed HTTPS, or ACME HTTPS at runtime. Backup settings are parsed now but
+must remain disabled until that runtime milestone is implemented.
 
 ## Layout
 

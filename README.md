@@ -15,8 +15,10 @@ opens one embedded RocksDB-backed SurrealDB instance, applies application-owned
 migrations before binding HTTP, includes database readiness in `/healthz`, and
 provides local Argon2id accounts, SurrealDB sessions, CSRF enforcement, login
 throttling, password expiry, role-protected routes, htmx-aware errors, and a
-progressively enhanced reference CRUD feature. The remaining implementation
-order is TLS, logical backup to R2, and hardening.
+progressively enhanced reference CRUD feature. In-process TLS supports plain
+HTTP, ephemeral self-signed development certificates, and ACME certificates
+with an optional HTTP redirect listener. The remaining implementation order is
+logical backup to R2, then hardening.
 
 Generate an application from a local build with:
 

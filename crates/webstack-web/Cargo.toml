@@ -10,8 +10,12 @@ publish.workspace = true
 askama.workspace = true
 axum.workspace = true
 axum-login.workspace = true
+axum-server.workspace = true
+futures-util.workspace = true
 mime_guess.workspace = true
+rcgen.workspace = true
 rust-embed.workspace = true
+rustls-acme.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 time.workspace = true
@@ -23,6 +27,7 @@ webstack-db = { path = "../webstack-db" }
 webstack-auth = { path = "../webstack-auth" }
 
 [dev-dependencies]
+reqwest.workspace = true
 serde_json.workspace = true
 surrealdb = { workspace = true, features = ["kv-mem"] }
 tempfile.workspace = true

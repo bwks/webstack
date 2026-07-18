@@ -12,8 +12,10 @@ htmx_version = "4.0.0-beta5"
 
 [server]
 bind_addr = "127.0.0.1"
+# Disabled TLS serves HTTP on http_port. TLS modes serve HTTPS on https_port.
 https_port = 8443
 http_port = 8080
+# In a TLS mode, this also binds http_port and redirects it to HTTPS.
 http_redirect = false
 
 [tls]
@@ -58,8 +60,10 @@ htmx_version = "4.0.0-beta5"
 
 [server]
 bind_addr = "127.0.0.1"
+# Disabled TLS serves HTTP on http_port. TLS modes serve HTTPS on https_port.
 https_port = 8443
 http_port = 8080
+# In a TLS mode, this also binds http_port and redirects it to HTTPS.
 http_redirect = false
 
 [tls]

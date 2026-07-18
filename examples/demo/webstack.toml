@@ -7,7 +7,12 @@ htmx_version = "4.0.0-beta5"
 
 [server]
 bind_addr = "0.0.0.0"
+https_port = 7337
 http_port = 42069
+http_redirect = true
+
+[tls]
+mode = "self_signed"
 
 [auth]
 session_ttl_hours = 168

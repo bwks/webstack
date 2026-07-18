@@ -53,9 +53,8 @@ Authenticated users with expired passwords are sent to `/change-password`.
 ## Sessions, CSRF, and Throttling
 
 Sessions have a seven-day default absolute lifetime and are checked on protected
-routes. Expired database rows are removed daily. Cookies are HTTP-only and use
-SameSite protection; TLS cookie hardening is completed with the in-process TLS
-phase.
+routes. Expired database rows are removed daily. Cookies are HTTP-only, use
+SameSite protection, and gain the `Secure` attribute whenever TLS is enabled.
 
 Every application route rejects unsafe methods unless the session token,
 double-submit cookie, and `X-CSRF-Token` header match. Generated base templates

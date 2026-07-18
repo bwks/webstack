@@ -56,7 +56,7 @@ flowchart TB
         Shutdown["Graceful shutdown<br/>SIGINT / SIGTERM"]:::implemented
 
         PlainHttp["Plain HTTP listener"]:::implemented
-        Tls["In-process TLS + redirect<br/>rustls / ACME / self-signed"]:::planned
+        Tls["In-process TLS + redirect<br/>rustls / ACME / self-signed"]:::implemented
         Router["Axum router"]:::implemented
         Middleware["CSRF enforcement"]:::implemented
 
@@ -83,6 +83,7 @@ flowchart TB
     Config --> State
     Main --> PlainHttp
     Main --> Tls
+    Shutdown --> Tls
     Browser -->|HTTP — disabled TLS mode| PlainHttp
     Browser -->|HTTPS| Tls
     PlainHttp -.->|redirect in TLS modes| Tls
