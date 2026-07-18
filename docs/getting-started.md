@@ -21,6 +21,21 @@ cd inventory-app
 cargo test
 ```
 
+Generation reports each long-running milestone:
+
+```text
+Creating inventory-app...
+  Writing application scaffold... done
+  Downloading and verifying frontend assets...
+  Installing frontend assets... done
+Created inventory-app
+
+Next steps:
+  cd inventory-app
+  git init -b main
+  just dev
+```
+
 Generation creates `./inventory-app` using deterministic filesystem operations.
 The target must not already exist. Webstack then prints the explicit commands to
 initialize version control and compile the application:

@@ -108,6 +108,12 @@ fn generated_release_runs_with_binary_config_and_migrations() {
         .output()
         .expect("webstack new should run");
     assert_success(&generated, "application generation");
+    let generation_output = String::from_utf8_lossy(&generated.stdout);
+    assert!(generation_output.contains("Creating "));
+    assert!(generation_output.contains("Writing application scaffold... done"));
+    assert!(generation_output.contains("Downloading and verifying frontend assets..."));
+    assert!(generation_output.contains("Installing frontend assets... done"));
+    assert!(generation_output.contains("Created "));
 
     let tailwind = if cfg!(windows) {
         application.join("tools/tailwindcss.exe")

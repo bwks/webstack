@@ -134,18 +134,23 @@ async fn execute(command: Command) -> Result<(), CliError> {
     match command {
         Command::New(args) => {
             let target = args.directory.unwrap_or_else(|| PathBuf::from(&args.name));
+            println!("Creating {}...", target.display());
             let options = GenerateOptions {
                 name: args.name,
                 target,
                 framework_path: args.framework_path,
             };
             let generated = generator::generate(&options)?;
-            if std::env::var_os("WEBSTACK_SKIP_ASSET_SETUP").is_none()
-                && let Err(error) =
+            println!("  Writing application scaffold... done");
+            if std::env::var_os("WEBSTACK_SKIP_ASSET_SETUP").is_none() {
+                println!("  Downloading and verifying frontend assets...");
+                if let Err(error) =
                     assets::setup(&generated, &webstack_core::config::AssetsConfig::default()).await
-            {
-                let _ = std::fs::remove_dir_all(&generated);
-                return Err(error.into());
+                {
+                    let _ = std::fs::remove_dir_all(&generated);
+                    return Err(error.into());
+                }
+                println!("  Installing frontend assets... done");
             }
             println!(
                 "Created {}\n\nNext steps:\n  cd {}\n  git init -b main\n  just dev",
@@ -157,6 +162,7 @@ async fn execute(command: Command) -> Result<(), CliError> {
         Command::Assets { command } => match command {
             AssetCommand::Setup => {
                 let root = std::env::current_dir().map_err(AssetError::Io)?;
+                println!("Downloading and verifying frontend assets...");
                 assets::setup_from_config(&root).await?;
                 println!(
                     "Frontend assets are downloaded and verified. Run `just css` to build CSS."

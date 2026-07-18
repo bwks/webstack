@@ -61,6 +61,31 @@ fn assert_generated_favicons(target: &Path) {
     assert_favicon_links(&error_template);
 }
 
+fn assert_in_order(output: &str, expected: &[&str]) {
+    let mut remaining = output;
+    for value in expected {
+        let position = remaining.find(value).unwrap_or_else(|| {
+            panic!("output does not contain {value:?} after prior values:\n{output}")
+        });
+        remaining = &remaining[position + value.len()..];
+    }
+}
+
+fn assert_generation_progress(output: &str, target: &Path) {
+    assert_in_order(
+        output,
+        &[
+            &format!("Creating {}...", target.display()),
+            "  Writing application scaffold... done",
+            &format!("Created {}", target.display()),
+            "git init -b main",
+            "just dev",
+        ],
+    );
+    assert!(!output.contains("Downloading and verifying frontend assets"));
+    assert!(!output.contains("Installing frontend assets"));
+}
+
 fn impl_target(item: &ItemImpl) -> Option<String> {
     let Type::Path(target) = item.self_ty.as_ref() else {
         return None;
@@ -347,8 +372,7 @@ fn new_generates_an_application_owned_project() {
     assert!(service.contains("TimeoutStopSec=35s"));
     assert!(service.contains("User=inventory-app"));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("git init -b main"));
-    assert!(stdout.contains("just dev"));
+    assert_generation_progress(&stdout, &target);
 }
 
 #[test]
@@ -484,6 +508,24 @@ fn generator_diagnostics_require_verbose_mode() {
     let stderr = String::from_utf8_lossy(&verbose.stderr);
     assert!(stderr.contains("application scaffold written"), "{stderr}");
     assert!(stderr.contains("app.name=verbose-app"), "{stderr}");
+}
+
+#[test]
+fn assets_setup_reports_download_progress_before_an_error() {
+    let temp = TempDir::new().expect("temporary directory");
+    fs::write(temp.path().join("webstack.toml"), "not valid toml =")
+        .expect("invalid configuration");
+    let output = webstack()
+        .args(["assets", "setup"])
+        .current_dir(temp.path())
+        .output()
+        .expect("CLI should run");
+
+    assert!(!output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "Downloading and verifying frontend assets...\n"
+    );
 }
 
 #[test]
