@@ -225,24 +225,17 @@ impl Default for TlsConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
     #[garde(custom(nonempty_path))]
-    pub data_dir: PathBuf,
-    #[garde(custom(non_blank))]
-    pub namespace: String,
-    #[garde(custom(non_blank))]
-    pub database: String,
+    pub path: PathBuf,
 }
 
 impl Default for DatabaseConfig {
-    /// Returns the conventional embedded database location and identifiers.
+    /// Returns the conventional embedded database file location.
     fn default() -> Self {
         Self {
-            data_dir: PathBuf::from("./data/surreal"),
-            namespace: "app".to_owned(),
-            database: "app".to_owned(),
+            path: PathBuf::from("./data/app.db"),
         }
     }
 }
-
 #[derive(Debug, Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
@@ -603,8 +596,7 @@ format = "json"
             temp.path(),
             r#"
 [database]
-namespace = ""
-database = ""
+path = ""
 
 [auth]
 session_ttl_hours = 0
@@ -618,8 +610,7 @@ filter = "not a [ valid filter"
         let error = Config::load_file(&path).expect_err("invalid config");
         let fields = validation_fields(error);
 
-        assert!(fields.iter().any(|field| field == "database.namespace"));
-        assert!(fields.iter().any(|field| field == "database.database"));
+        assert!(fields.iter().any(|field| field == "database.path"));
         assert!(fields.iter().any(|field| field == "auth.session_ttl_hours"));
         assert!(fields.iter().any(|field| field == "auth.password_ttl_days"));
         assert!(fields.iter().any(|field| field == "observability.filter"));

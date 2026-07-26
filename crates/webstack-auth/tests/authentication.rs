@@ -1,44 +1,43 @@
 use std::collections::HashMap;
 
 use axum_login::AuthnBackend;
-use surrealdb::{Surreal, engine::local::Mem};
+
 use time::{Duration, OffsetDateTime};
 use tower_sessions::{
     ExpiredDeletion, SessionStore,
     session::{Id, Record},
 };
-use webstack_auth::{
-    AuthBackend, Credentials, SurrealSessionStore, bootstrap_admin, hash_password,
-};
+use webstack_auth::{AuthBackend, Credentials, TursoSessionStore, bootstrap_admin, hash_password};
 use webstack_core::config::{AuthConfig, Environment};
 use webstack_db::Database;
 
 const AUTH_SCHEMA: &str = r"
-DEFINE TABLE _webstack_user SCHEMAFULL;
-DEFINE FIELD username ON _webstack_user TYPE string;
-DEFINE FIELD password_hash ON _webstack_user TYPE string;
-DEFINE FIELD roles ON _webstack_user TYPE array<string>;
-DEFINE FIELD disabled ON _webstack_user TYPE bool;
-DEFINE FIELD created_at ON _webstack_user TYPE int;
-DEFINE FIELD password_expires_at ON _webstack_user TYPE int;
-DEFINE INDEX webstack_user_username ON _webstack_user FIELDS username UNIQUE;
-DEFINE TABLE _webstack_session SCHEMAFULL;
-DEFINE FIELD payload ON _webstack_session TYPE string;
-DEFINE FIELD expires_at ON _webstack_session TYPE int;
+CREATE TABLE _webstack_user (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    roles TEXT NOT NULL,
+    disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    password_expires_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE _webstack_session (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX webstack_session_expiry ON _webstack_session (expires_at);
 ";
 
 async fn database() -> Database {
-    let database = Surreal::new::<Mem>(()).await.expect("memory database");
-    database
-        .use_ns("auth_test")
-        .use_db("auth_test")
+    let database = webstack_db::connect(std::path::Path::new(":memory:"))
         .await
-        .expect("namespace and database");
+        .expect("memory database");
     database
-        .query(AUTH_SCHEMA)
+        .connection()
         .await
-        .expect("schema query")
-        .check()
+        .expect("connection")
+        .execute_batch(AUTH_SCHEMA)
+        .await
         .expect("authentication schema");
     database
 }
@@ -126,9 +125,9 @@ async fn password_replacement_invalidates_the_old_authentication_hash() {
 }
 
 #[tokio::test]
-async fn surreal_session_store_round_trips_and_deletes_records() {
+async fn turso_session_store_round_trips_and_deletes_records() {
     let database = database().await;
-    let store = SurrealSessionStore::new(database);
+    let store = TursoSessionStore::new(database);
     let mut record = Record {
         id: Id::default(),
         data: HashMap::new(),
@@ -156,7 +155,7 @@ async fn surreal_session_store_round_trips_and_deletes_records() {
 #[tokio::test]
 async fn expired_sessions_are_removed() {
     let database = database().await;
-    let store = SurrealSessionStore::new(database);
+    let store = TursoSessionStore::new(database);
     let mut record = Record {
         id: Id::default(),
         data: HashMap::new(),

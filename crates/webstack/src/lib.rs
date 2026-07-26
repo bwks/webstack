@@ -4,9 +4,9 @@ pub use askama;
 pub use askama_web;
 pub use rust_embed;
 pub use serde;
-pub use surrealdb;
 pub use tokio;
 pub use tracing;
+pub use turso;
 pub use webstack_core::{config, observability};
 pub use webstack_web::{
     AppError, AppState, Application, ApplicationBuilder, ApplicationError, ErrorView, assets, axum,

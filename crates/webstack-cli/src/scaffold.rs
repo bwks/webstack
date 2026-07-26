@@ -32,9 +32,7 @@ acme_cache_dir = "./data/acme"
 acme_staging = false
 
 [database]
-data_dir = "./data/surreal"
-namespace = "app"
-database = "app"
+path = "./data/app.db"
 
 [auth]
 session_ttl_hours = 168
@@ -81,9 +79,7 @@ acme_cache_dir = "./data/acme"
 acme_staging = false
 
 [database]
-data_dir = "./data/surreal"
-namespace = "app"
-database = "app"
+path = "./data/app.db"
 
 [auth]
 session_ttl_hours = 168
@@ -252,73 +248,80 @@ mod tests {
     },
     ScaffoldFile {
         path: "src/domain/items/queries.rs",
-        contents: r#"use webstack::{
-    AppError, AppState,
-    surrealdb::types::{RecordId, RecordIdKey, SurrealValue},
-};
+        contents: r#"use webstack::{AppError, AppState};
 
 use super::Item;
 
-#[derive(Debug, SurrealValue)]
-#[surreal(crate = "webstack::surrealdb::types")]
-pub(super) struct ItemRecord {
-    id: RecordId,
+/// One item row decoded from Turso.
+struct ItemRecord {
+    id: String,
     name: String,
 }
 
 impl ItemRecord {
+    /// Decodes a Turso row into an item record.
+    fn from_row(row: &webstack::turso::Row) -> Result<Self, AppError> {
+        Ok(Self {
+            id: row
+                .get(0)
+                .map_err(|source| AppError::internal("decode item identifier", source))?,
+            name: row
+                .get(1)
+                .map_err(|source| AppError::internal("decode item name", source))?,
+        })
+    }
+
     /// Converts a database record into an application item.
-    pub(super) fn into_item(self) -> Result<Item, AppError> {
-        let RecordIdKey::String(id) = self.id.key else {
-            return Err(AppError::internal(
-                "read item identifier",
-                std::io::Error::other("item identifier was not a string"),
-            ));
-        };
-        Ok(Item::from_parts(id, self.name))
+    fn into_item(self) -> Item {
+        Item::from_parts(self.id, self.name)
     }
 }
 
 /// Loads all shared items in stable creation order.
 pub(super) async fn list(state: &AppState) -> Result<Vec<Item>, AppError> {
-    let mut response = state
+    let connection = state
         .database()
-        .query("SELECT id, name, created_at FROM item ORDER BY created_at, id;")
+        .connection()
+        .await
+        .map_err(|source| AppError::internal("connect to load items", source))?;
+    let mut rows = connection
+        .query("SELECT id, name FROM item ORDER BY created_at, id", ())
+        .await
+        .map_err(|source| AppError::internal("load items", source))?;
+    let mut items = Vec::new();
+    while let Some(row) = rows
+        .next()
         .await
         .map_err(|source| AppError::internal("load items", source))?
-        .check()
-        .map_err(|source| AppError::internal("load items", source))?;
-    response
-        .take::<Vec<ItemRecord>>(0)
-        .map_err(|source| AppError::internal("decode items", source))?
-        .into_iter()
-        .map(ItemRecord::into_item)
-        .collect()
+    {
+        items.push(ItemRecord::from_row(&row)?.into_item());
+    }
+    Ok(items)
 }
 
-/// Loads one item by its string record identifier.
+/// Loads one item by its string identifier.
 pub(super) async fn get(state: &AppState, id: &str) -> Result<Item, AppError> {
-    let mut response = state
+    let connection = state
         .database()
-        .query("SELECT id, name FROM ONLY type::record('item', $id);")
-        .bind(("id", id.to_owned()))
+        .connection()
+        .await
+        .map_err(|source| AppError::internal("connect to load item", source))?;
+    let mut rows = connection
+        .query("SELECT id, name FROM item WHERE id = ?1", (id,))
+        .await
+        .map_err(|source| AppError::internal("load item", source))?;
+    rows.next()
         .await
         .map_err(|source| AppError::internal("load item", source))?
-        .check()
-        .map_err(|source| AppError::internal("load item", source))?;
-    response
-        .take::<Option<ItemRecord>>(0)
-        .map_err(|source| AppError::internal("decode item", source))?
-        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
-        .into_item()
+        .map(|row| ItemRecord::from_row(&row).map(ItemRecord::into_item))
+        .transpose()?
+        .ok_or_else(|| AppError::not_found("The requested item does not exist."))
 }
 "#,
     },
     ScaffoldFile {
         path: "src/domain/items/commands.rs",
         contents: r#"use webstack::{AppError, AppState, database::retry_write};
-
-use super::queries::ItemRecord;
 
 /// Creates a shared item inside the framework's retry boundary.
 pub(super) async fn create(state: &AppState, name: &str) -> Result<(), AppError> {
@@ -328,11 +331,13 @@ pub(super) async fn create(state: &AppState, name: &str) -> Result<(), AppError>
         let database = database.clone();
         let name = name.clone();
         async move {
-            database
-                .query("CREATE item SET name = $name;")
-                .bind(("name", name))
-                .await?
-                .check()?;
+            let connection = database.connection().await?;
+            connection
+                .execute(
+                    "INSERT INTO item (id, name) VALUES (lower(hex(randomblob(16))), ?1)",
+                    (name,),
+                )
+                .await?;
             Ok(())
         }
     })
@@ -345,25 +350,27 @@ pub(super) async fn update(state: &AppState, id: &str, name: &str) -> Result<(),
     let database = state.database().clone();
     let id = id.to_owned();
     let name = name.to_owned();
-    let found = retry_write(|| {
+    let changed = retry_write(|| {
         let database = database.clone();
         let id = id.clone();
         let name = name.clone();
         async move {
-            let mut response = database
-                .query("UPDATE ONLY type::record('item', $id) SET name = $name RETURN id, name;")
-                .bind(("id", id))
-                .bind(("name", name))
-                .await?
-                .check()?;
-            response.take::<Option<ItemRecord>>(0)
+            let connection = database.connection().await?;
+            connection
+                .execute(
+                    "UPDATE item SET name = ?1, updated_at = unixepoch() WHERE id = ?2",
+                    (name, id),
+                )
+                .await
         }
     })
     .await
     .map_err(|source| AppError::internal("update item", source))?;
-    found
-        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
-        .into_item()?;
+    if changed == 0 {
+        return Err(AppError::not_found(
+            "The requested item does not exist.",
+        ));
+    }
     Ok(())
 }
 
@@ -371,23 +378,23 @@ pub(super) async fn update(state: &AppState, id: &str, name: &str) -> Result<(),
 pub(super) async fn delete(state: &AppState, id: &str) -> Result<(), AppError> {
     let database = state.database().clone();
     let id = id.to_owned();
-    let found = retry_write(|| {
+    let changed = retry_write(|| {
         let database = database.clone();
         let id = id.clone();
         async move {
-            let mut response = database
-                .query("DELETE ONLY type::record('item', $id) RETURN BEFORE;")
-                .bind(("id", id))
-                .await?
-                .check()?;
-            response.take::<Option<ItemRecord>>(0)
+            let connection = database.connection().await?;
+            connection
+                .execute("DELETE FROM item WHERE id = ?1", (id,))
+                .await
         }
     })
     .await
     .map_err(|source| AppError::internal("delete item", source))?;
-    found
-        .ok_or_else(|| AppError::not_found("The requested item does not exist."))?
-        .into_item()?;
+    if changed == 0 {
+        return Err(AppError::not_found(
+            "The requested item does not exist.",
+        ));
+    }
     Ok(())
 }
 "#,
@@ -1176,26 +1183,30 @@ need_stdout = true
 "##,
     },
     ScaffoldFile {
-        path: "migrations/0001_initialize.surql",
+        path: "migrations/0001_initialize.sql",
         contents: r"-- Initial application and authentication schema.
-DEFINE TABLE _webstack_user SCHEMAFULL;
-DEFINE FIELD username ON _webstack_user TYPE string;
-DEFINE FIELD password_hash ON _webstack_user TYPE string;
-DEFINE FIELD roles ON _webstack_user TYPE array<string>;
-DEFINE FIELD disabled ON _webstack_user TYPE bool;
-DEFINE FIELD created_at ON _webstack_user TYPE int;
-DEFINE FIELD password_expires_at ON _webstack_user TYPE int;
-DEFINE INDEX webstack_user_username ON _webstack_user FIELDS username UNIQUE;
+CREATE TABLE _webstack_user (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    roles TEXT NOT NULL,
+    disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    password_expires_at INTEGER NOT NULL
+) STRICT;
 
-DEFINE TABLE _webstack_session SCHEMAFULL;
-DEFINE FIELD payload ON _webstack_session TYPE string;
-DEFINE FIELD expires_at ON _webstack_session TYPE int;
-DEFINE INDEX webstack_session_expiry ON _webstack_session FIELDS expires_at;
+CREATE TABLE _webstack_session (
+    id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX webstack_session_expiry ON _webstack_session (expires_at);
 
-DEFINE TABLE item SCHEMAFULL;
-DEFINE FIELD name ON item TYPE string ASSERT string::len($value) >= 1 AND string::len($value) <= 100;
-DEFINE FIELD created_at ON item TYPE datetime DEFAULT time::now();
-DEFINE FIELD updated_at ON item TYPE datetime DEFAULT time::now() VALUE time::now();
+CREATE TABLE item (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+) STRICT;
 ",
     },
     ScaffoldFile {
@@ -1237,9 +1248,9 @@ This application uses a Phoenix-inspired domain/web split while consuming only t
 
 `src/application.rs` is the composition boundary. `src/web/router.rs` owns the HTTP route graph. Feature handlers and Askama views live under `src/web`, while business models and persistence operations live under `src/domain`.
 
-Each domain exposes a small context API from its `mod.rs`. The Items example provides `list`, `get`, `create`, `update`, and `delete`; web handlers call those functions instead of importing private queries or commands. Models and business validation live with the domain, read-only SurrealDB access belongs in `queries.rs`, and retry-safe writes belong in `commands.rs`.
+Each domain exposes a small context API from its `mod.rs`. The Items example provides `list`, `get`, `create`, `update`, and `delete`; web handlers call those functions instead of importing private queries or commands. Models and business validation live with the domain, read-only Turso access belongs in `queries.rs`, and retry-safe writes belong in `commands.rs`.
 
-Templates use the same feature names under `templates/`, with shared layouts under `templates/layouts`. Webstack owns the local account backend, SurrealDB session store, CSRF checks, and route guards. The application owns its domain code, handlers, views, templates, assets, migrations, and authentication display copy.
+Templates use the same feature names under `templates/`, with shared layouts under `templates/layouts`. Webstack owns the local account backend, Turso session store, CSRF checks, and route guards. The application owns its domain code, handlers, views, templates, assets, migrations, and authentication display copy.
 ",
     },
     ScaffoldFile {
@@ -1265,13 +1276,13 @@ Start from `webstack.example.toml`, which uses `environment = "production"`. A f
 
 ## Alpine container
 
-Run `just setup` once, then `just image`. The multi-stage image builds on Alpine 3.24 and runs as UID/GID 10001 with only CA certificates and the C++ runtime installed. Mount a production configuration at `/app/webstack.toml` and persistent storage at `/app/data`. Set `server.bind_addr = "0.0.0.0"` and `database.data_dir = "./data/surreal"` in the mounted configuration.
+Run `just setup` once, then `just image`. The multi-stage image builds on Alpine 3.24 and runs as UID/GID 10001 with only the CA certificates required by the application installed. Mount a production configuration at `/app/webstack.toml` and persistent storage at `/app/data`. Set `server.bind_addr = "0.0.0.0"` and `database.path = "./data/app.db"` in the mounted configuration.
 
 The image contains the complete migration history. Probe `/healthz` from the orchestrator; no diagnostic client is added to the runtime image.
 
 ## systemd
 
-Install the release binary, `webstack.toml`, and `migrations/` under `/opt/{{app_name}}`. Create the unprivileged `{{app_name}}` account, create `/var/lib/{{app_name}}`, and adjust `database.data_dir` and `tls.acme_cache_dir` to use that writable directory. Install `deploy/{{app_name}}.service`, reload systemd, and enable the service.
+Install the release binary, `webstack.toml`, and `migrations/` under `/opt/{{app_name}}`. Create the unprivileged `{{app_name}}` account, create `/var/lib/{{app_name}}`, and adjust `database.path` and `tls.acme_cache_dir` to use that writable directory. Install `deploy/{{app_name}}.service`, reload systemd, and enable the service.
 
 The service allows 35 seconds for Webstack's default 30-second graceful shutdown. Ports 8080 and 8443 need no capabilities; production firewalls may map 443 to 8443 without terminating TLS. Inspect structured logs with `journalctl -u {{app_name}}`.
 "#,

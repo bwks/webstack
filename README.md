@@ -19,6 +19,9 @@ progressively enhanced reference CRUD feature. In-process TLS supports plain
 HTTP, ephemeral self-signed development certificates, and ACME certificates
 with an optional HTTP redirect listener. The remaining implementation order is
 runtime hardening followed by consistent snapshot backup to R2 as the final phase.
+The embedded database API is pinned to `turso` 0.8.0-pre.1 because it is still
+beta. This branch changes the on-disk format: existing SurrealDB directories are
+not imported, so configure a fresh `database.path` when upgrading.
 
 Generate an application from a local build with:
 

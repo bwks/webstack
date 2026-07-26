@@ -171,6 +171,24 @@ fn assert_generation_progress(output: &str, target: &Path) {
     assert!(!output.contains("Downloading and verifying frontend assets"));
     assert!(!output.contains("Installing frontend assets"));
 }
+fn assert_generated_database_files(target: &Path) {
+    let local_config = fs::read_to_string(target.join("webstack.toml")).expect("local config");
+    let example_config =
+        fs::read_to_string(target.join("webstack.example.toml")).expect("example config");
+    assert!(local_config.contains("environment = \"development\""));
+    assert!(example_config.contains("environment = \"production\""));
+    assert_ne!(local_config, example_config);
+    assert!(local_config.contains("htmx_version = \"4.0.0-beta5\""));
+    assert!(local_config.contains("password_ttl_days = 90"));
+    assert!(local_config.contains("shutdown_timeout_seconds = 30"));
+    assert!(local_config.contains("path = \"./data/app.db\""));
+    assert!(!local_config.contains("namespace"));
+    let migration = fs::read_to_string(target.join("migrations/0001_initialize.sql"))
+        .expect("initial migration");
+    assert!(migration.contains("CREATE TABLE _webstack_user"));
+    assert!(migration.contains("CREATE TABLE _webstack_session"));
+    assert!(migration.contains("CREATE TABLE item"));
+}
 
 fn assert_generated_application_files(target: &Path) {
     assert_application_structure(target);
@@ -187,7 +205,7 @@ fn assert_generated_application_files(target: &Path) {
         "assets/images/.gitkeep",
         "assets/images/favicon-light.png",
         "assets/images/favicon-dark.png",
-        "migrations/0001_initialize.surql",
+        "migrations/0001_initialize.sql",
         "docs/README.md",
         "docs/CONVENTIONS.md",
         "tests/application.rs",
@@ -476,27 +494,14 @@ fn new_generates_an_application_owned_project() {
     assert!(item_queries.contains("SELECT id, name"));
     assert!(!item_queries.contains("retry_write"));
     assert!(item_commands.contains("retry_write"));
-    assert!(item_commands.contains("CREATE item"));
-    assert!(item_commands.contains("UPDATE ONLY"));
-    assert!(item_commands.contains("DELETE ONLY"));
+    assert!(item_commands.contains("INSERT INTO item"));
+    assert!(item_commands.contains("UPDATE item SET"));
+    assert!(item_commands.contains("DELETE FROM item"));
     assert!(!item_handlers.contains("retry_write"));
     assert!(!item_handlers.contains(".query("));
     assert!(item_handlers.contains("Form(form): Form<ItemForm>"));
     assert!(item_handlers.contains("items::create(&state, &form.name).await?"));
-    let local_config = fs::read_to_string(target.join("webstack.toml")).expect("local config");
-    let example_config =
-        fs::read_to_string(target.join("webstack.example.toml")).expect("example config");
-    assert!(local_config.contains("environment = \"development\""));
-    assert!(example_config.contains("environment = \"production\""));
-    assert_ne!(local_config, example_config);
-    assert!(local_config.contains("htmx_version = \"4.0.0-beta5\""));
-    assert!(local_config.contains("password_ttl_days = 90"));
-    assert!(local_config.contains("shutdown_timeout_seconds = 30"));
-    let migration = fs::read_to_string(target.join("migrations/0001_initialize.surql"))
-        .expect("initial migration");
-    assert!(migration.contains("DEFINE TABLE _webstack_user SCHEMAFULL"));
-    assert!(migration.contains("DEFINE TABLE _webstack_session SCHEMAFULL"));
-    assert!(migration.contains("DEFINE TABLE item SCHEMAFULL"));
+    assert_generated_database_files(&target);
     assert!(!target.join("Cargo.lock").exists());
     assert!(!target.join(".git").exists());
     assert!(!target.join("assets/css/app.css").exists());
@@ -585,9 +590,9 @@ fn example_application_matches_the_generated_structure() {
     assert!(queries.contains("SELECT id, name"));
     assert!(!queries.contains("retry_write"));
     assert!(commands.contains("retry_write"));
-    assert!(commands.contains("CREATE item"));
-    assert!(commands.contains("UPDATE ONLY"));
-    assert!(commands.contains("DELETE ONLY"));
+    assert!(commands.contains("INSERT INTO item"));
+    assert!(commands.contains("UPDATE item SET"));
+    assert!(commands.contains("DELETE FROM item"));
     assert!(!handlers.contains("retry_write"));
     assert!(!handlers.contains(".query("));
 }
@@ -603,8 +608,8 @@ fn generate_migration_numbers_valid_history_and_prints_the_path() {
         .output()
         .expect("CLI should run");
     assert_success(&initial);
-    assert!(migrations.join("0001_initialize.surql").is_file());
-    fs::write(migrations.join("0004_add_items.surql"), "-- Items\n").expect("migration");
+    assert!(migrations.join("0001_initialize.sql").is_file());
+    fs::write(migrations.join("0004_add_items.sql"), "-- Items\n").expect("migration");
 
     let output = webstack()
         .args(["generate", "migration", "add_roles"])
@@ -612,7 +617,7 @@ fn generate_migration_numbers_valid_history_and_prints_the_path() {
         .output()
         .expect("CLI should run");
     assert_success(&output);
-    let target = migrations.join("0005_add_roles.surql");
+    let target = migrations.join("0005_add_roles.sql");
     assert!(target.is_file());
     assert_eq!(
         fs::read_to_string(&target).expect("generated migration"),
@@ -635,7 +640,7 @@ fn generate_migration_rejects_invalid_inputs_and_history() {
     assert!(!invalid_name.status.success());
     assert!(String::from_utf8_lossy(&invalid_name.stderr).contains("snake_case"));
 
-    fs::write(migrations.join("bad.surql"), "-- malformed\n").expect("migration");
+    fs::write(migrations.join("bad.sql"), "-- malformed\n").expect("migration");
     let malformed = webstack()
         .args(["generate", "migration", "add_roles"])
         .current_dir(temp.path())
@@ -650,7 +655,7 @@ fn generate_migration_rejects_name_collisions_and_overflow() {
     let temp = TempDir::new().expect("temporary directory");
     let migrations = temp.path().join("migrations");
     fs::create_dir(&migrations).expect("migrations directory");
-    fs::write(migrations.join("0007_add_roles.surql"), "-- Existing\n").expect("migration");
+    fs::write(migrations.join("0007_add_roles.sql"), "-- Existing\n").expect("migration");
 
     let collision = webstack()
         .args(["generate", "migration", "add_roles"])
@@ -660,8 +665,8 @@ fn generate_migration_rejects_name_collisions_and_overflow() {
     assert!(!collision.status.success());
     assert!(String::from_utf8_lossy(&collision.stderr).contains("already exists"));
 
-    fs::remove_file(migrations.join("0007_add_roles.surql")).expect("remove migration");
-    fs::write(migrations.join("9999_final.surql"), "-- Final\n").expect("migration");
+    fs::remove_file(migrations.join("0007_add_roles.sql")).expect("remove migration");
+    fs::write(migrations.join("9999_final.sql"), "-- Final\n").expect("migration");
     let overflow = webstack()
         .args(["generate", "migration", "another"])
         .current_dir(temp.path())

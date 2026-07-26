@@ -1,34 +1,8 @@
 use std::{fs, path::PathBuf};
 
-use surrealdb::types::{RecordId, RecordIdKey, SurrealValue};
 use tempfile::TempDir;
-use webstack_db::{Database, DatabaseError, connect, migrate};
-
-#[derive(Debug, SurrealValue)]
-struct PersistedValue {
-    payload: String,
-}
-
-#[derive(Debug, SurrealValue, PartialEq, Eq)]
-struct Sequence {
-    sequence: u8,
-}
-
-#[derive(Debug, SurrealValue)]
-struct Count {
-    count: usize,
-}
-
-#[derive(Debug, SurrealValue)]
-struct ItemName {
-    name: String,
-}
-
-#[derive(Debug, SurrealValue)]
-struct DemoItem {
-    id: RecordId,
-    name: String,
-}
+use turso::transaction::TransactionBehavior;
+use webstack_db::{DatabaseError, connect, migrate};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -36,56 +10,60 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-async fn reopen(path: &std::path::Path, namespace: &str, database: &str) -> Database {
-    for _attempt in 0..100 {
-        match connect(path, namespace, database).await {
-            Ok(database) => return database,
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
-        }
-    }
-    panic!("database lock was not released after all handles were dropped");
-}
-
 #[tokio::test]
-async fn rocksdb_connection_selects_scope_shares_and_reopens() {
+async fn turso_connection_shares_and_reopens_persistent_data() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(directory.path(), "inventory", "production")
-        .await
-        .expect("database connection");
+    let path = directory.path().join("nested/app.db");
+    let database = connect(&path).await.expect("database connection");
     let clone = database.clone();
-    database
-        .query("CREATE persistence:one SET payload = 'kept';")
+    let connection = database.connection().await.expect("connection");
+    connection
+        .execute_batch(
+            "CREATE TABLE persistence (id INTEGER PRIMARY KEY, payload TEXT NOT NULL) STRICT; \
+             INSERT INTO persistence (id, payload) VALUES (1, 'kept');",
+        )
         .await
-        .expect("create query")
-        .check()
-        .expect("create statement");
-    let mut response = clone
-        .query("SELECT payload FROM persistence:one;")
+        .expect("create data");
+    let connection = clone.connection().await.expect("clone connection");
+    let mut rows = connection
+        .query("SELECT payload FROM persistence WHERE id = 1", ())
         .await
-        .expect("select query")
-        .check()
-        .expect("select statement");
-    let values: Vec<PersistedValue> = response.take(0).expect("values");
-    assert_eq!(values[0].payload, "kept");
-    drop(response);
+        .expect("select query");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("row")
+            .expect("value")
+            .get::<String>(0)
+            .expect("payload"),
+        "kept"
+    );
+    drop(rows);
+    drop(connection);
     drop(clone);
     drop(database);
 
-    let reopened = reopen(directory.path(), "inventory", "production").await;
-    let mut response = reopened
-        .query("SELECT payload FROM persistence:one;")
+    let reopened = connect(&path).await.expect("reopen database");
+    let connection = reopened.connection().await.expect("reopen connection");
+    let mut rows = connection
+        .query("SELECT payload FROM persistence WHERE id = 1", ())
         .await
-        .expect("reopen query")
-        .check()
-        .expect("reopen statement");
-    let values: Vec<PersistedValue> = response.take(0).expect("values");
-    assert_eq!(values[0].payload, "kept");
+        .expect("reopen query");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("row")
+            .expect("value")
+            .get::<String>(0)
+            .expect("payload"),
+        "kept"
+    );
 }
 
 #[tokio::test]
 async fn migrations_apply_in_order_and_are_restart_idempotent() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(directory.path(), "test", "ordered")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     migrate(&database, &fixture("ordered"))
@@ -95,32 +73,35 @@ async fn migrations_apply_in_order_and_are_restart_idempotent() {
         .await
         .expect("idempotent migration run");
 
-    let mut response = database
-        .query("SELECT sequence FROM migration_event ORDER BY sequence;")
+    let connection = database.connection().await.expect("connection");
+    let mut rows = connection
+        .query("SELECT sequence FROM migration_event ORDER BY sequence", ())
         .await
-        .expect("events")
-        .check()
-        .expect("event query");
-    let sequences: Vec<Sequence> = response.take(0).expect("sequences");
+        .expect("events");
+    let mut sequences = Vec::new();
+    while let Some(row) = rows.next().await.expect("event row") {
+        sequences.push(row.get::<i64>(0).expect("sequence"));
+    }
+    assert_eq!(sequences, vec![1, 2]);
+    let mut rows = connection
+        .query("SELECT COUNT(*) FROM _migrations", ())
+        .await
+        .expect("ledger");
     assert_eq!(
-        sequences,
-        vec![Sequence { sequence: 1 }, Sequence { sequence: 2 }]
+        rows.next()
+            .await
+            .expect("count row")
+            .expect("count")
+            .get::<i64>(0)
+            .expect("count value"),
+        2
     );
-
-    let mut response = database
-        .query("SELECT count() AS count FROM _migrations GROUP ALL;")
-        .await
-        .expect("ledger")
-        .check()
-        .expect("ledger query");
-    let counts: Vec<Count> = response.take(0).expect("count");
-    assert_eq!(counts[0].count, 2);
 }
 
 #[tokio::test]
 async fn demo_migrations_create_a_working_items_schema() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(directory.path(), "demo", "items")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     let migrations =
@@ -129,59 +110,51 @@ async fn demo_migrations_create_a_working_items_schema() {
         .await
         .expect("demo migrations");
 
-    let mut response = database
-        .query("CREATE ONLY item SET name = 'First' RETURN id, name;")
+    let connection = database.connection().await.expect("connection");
+    connection
+        .execute(
+            "INSERT INTO item (id, name) VALUES (?1, ?2)",
+            ("item-one", "First"),
+        )
         .await
-        .expect("item queries")
-        .check()
-        .expect("item statements");
-    let created: Option<DemoItem> = response.take(0).expect("created item");
-    let created = created.expect("created record");
-    assert_eq!(created.name, "First");
-    let RecordIdKey::String(id) = created.id.key else {
-        panic!("expected string record key");
-    };
-
-    let mut response = database
-        .query("UPDATE ONLY type::record('item', $id) SET name = $name RETURN id, name;")
-        .bind(("id", id.clone()))
-        .bind(("name", "Updated"))
+        .expect("create item");
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE item SET name = ?1, updated_at = unixepoch() WHERE id = ?2",
+                ("Updated", "item-one"),
+            )
+            .await
+            .expect("update item"),
+        1
+    );
+    let mut rows = connection
+        .query("SELECT name FROM item WHERE id = ?1", ("item-one",))
         .await
-        .expect("update query")
-        .check()
-        .expect("update statement");
-    let updated: Option<DemoItem> = response.take(0).expect("updated item");
-    assert_eq!(updated.expect("updated record").name, "Updated");
-
-    let mut response = database
-        .query("SELECT name, created_at, id FROM item ORDER BY created_at, id;")
-        .await
-        .expect("select query")
-        .check()
-        .expect("select statement");
-    let items: Vec<ItemName> = response.take(0).expect("items");
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].name, "Updated");
-
-    let mut response = database
-        .query("DELETE ONLY type::record('item', $id) RETURN BEFORE;")
-        .bind(("id", id))
-        .await
-        .expect("delete query")
-        .check()
-        .expect("delete statement");
-    assert!(
-        response
-            .take::<Option<DemoItem>>(0)
-            .expect("deleted item")
-            .is_some()
+        .expect("select item");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("item row")
+            .expect("item")
+            .get::<String>(0)
+            .expect("name"),
+        "Updated"
+    );
+    drop(rows);
+    assert_eq!(
+        connection
+            .execute("DELETE FROM item WHERE id = ?1", ("item-one",))
+            .await
+            .expect("delete item"),
+        1
     );
 }
 
 #[tokio::test]
 async fn failed_migration_rolls_back_statements_and_ledger() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(directory.path(), "test", "rollback")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     assert!(matches!(
@@ -189,28 +162,33 @@ async fn failed_migration_rolls_back_statements_and_ledger() {
         Err(DatabaseError::Migration { .. })
     ));
 
-    let response = database
-        .query("SELECT * FROM rollback_event;")
-        .await
-        .expect("rollback query");
+    let connection = database.connection().await.expect("connection");
     assert!(
-        response.check().is_err(),
+        connection
+            .query("SELECT * FROM rollback_event", ())
+            .await
+            .is_err(),
         "rolled-back table must not exist"
     );
-    let mut response = database
-        .query("SELECT * FROM _migrations;")
+    let mut rows = connection
+        .query("SELECT COUNT(*) FROM _migrations", ())
         .await
-        .expect("ledger query")
-        .check()
-        .expect("ledger statement");
-    let rows: Vec<surrealdb::types::Value> = response.take(0).expect("rows");
-    assert!(rows.is_empty());
+        .expect("ledger query");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("ledger row")
+            .expect("ledger count")
+            .get::<i64>(0)
+            .expect("count"),
+        0
+    );
 }
 
 #[tokio::test]
 async fn startup_rejects_checksum_drift_and_missing_applied_files() {
     let drift_directory = TempDir::new().expect("temporary directory");
-    let database = connect(drift_directory.path(), "test", "drift")
+    let database = connect(&drift_directory.path().join("app.db"))
         .await
         .expect("database");
     migrate(&database, &fixture("original"))
@@ -222,7 +200,7 @@ async fn startup_rejects_checksum_drift_and_missing_applied_files() {
     ));
 
     let missing_directory = TempDir::new().expect("temporary directory");
-    let database = connect(missing_directory.path(), "test", "missing")
+    let database = connect(&missing_directory.path().join("app.db"))
         .await
         .expect("database");
     migrate(&database, &fixture("original"))
@@ -238,7 +216,7 @@ async fn startup_rejects_checksum_drift_and_missing_applied_files() {
 #[tokio::test]
 async fn invalid_filesystem_histories_fail_before_application() {
     let invalid_directory = TempDir::new().expect("temporary directory");
-    let database = connect(invalid_directory.path(), "test", "invalid")
+    let database = connect(&invalid_directory.path().join("app.db"))
         .await
         .expect("database");
     assert!(matches!(
@@ -247,7 +225,7 @@ async fn invalid_filesystem_histories_fail_before_application() {
     ));
 
     let duplicate_directory = TempDir::new().expect("temporary directory");
-    let database = connect(duplicate_directory.path(), "test", "duplicate")
+    let database = connect(&duplicate_directory.path().join("app.db"))
         .await
         .expect("database");
     assert!(matches!(
@@ -259,7 +237,7 @@ async fn invalid_filesystem_histories_fail_before_application() {
 #[tokio::test]
 async fn missing_directory_fails_and_an_empty_directory_is_valid() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(&directory.path().join("database"), "test", "directory")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     let migrations = directory.path().join("migrations");
@@ -284,7 +262,7 @@ async fn missing_directory_fails_and_an_empty_directory_is_valid() {
 #[tokio::test]
 async fn nested_directories_and_non_utf8_contents_are_rejected() {
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(&directory.path().join("database"), "test", "paths")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     let migrations = directory.path().join("migrations");
@@ -296,7 +274,7 @@ async fn nested_directories_and_non_utf8_contents_are_rejected() {
     ));
 
     fs::remove_dir(migrations.join("nested")).expect("remove nested directory");
-    fs::write(migrations.join("0001_invalid_utf8.surql"), [0xff]).expect("invalid UTF-8 migration");
+    fs::write(migrations.join("0001_invalid_utf8.sql"), [0xff]).expect("invalid UTF-8 migration");
     assert!(matches!(
         migrate(&database, &migrations).await,
         Err(DatabaseError::NonUtf8Migration(_))
@@ -309,17 +287,74 @@ async fn migration_symlinks_are_rejected() {
     use std::os::unix::fs::symlink;
 
     let directory = TempDir::new().expect("temporary directory");
-    let database = connect(&directory.path().join("database"), "test", "symlink")
+    let database = connect(&directory.path().join("app.db"))
         .await
         .expect("database");
     let migrations = directory.path().join("migrations");
     fs::create_dir(&migrations).expect("migration directory");
-    let target = directory.path().join("target.surql");
-    fs::write(&target, "RETURN true;").expect("symlink target");
-    symlink(&target, migrations.join("0001_link.surql")).expect("migration symlink");
+    let target = directory.path().join("target.sql");
+    fs::write(&target, "SELECT 1;").expect("symlink target");
+    symlink(&target, migrations.join("0001_link.sql")).expect("migration symlink");
 
     assert!(matches!(
         migrate(&database, &migrations).await,
         Err(DatabaseError::InvalidMigrationPath(_))
     ));
+}
+
+#[tokio::test]
+async fn wal_allows_readers_while_one_writer_transaction_is_active() {
+    let directory = TempDir::new().expect("temporary directory");
+    let database = connect(&directory.path().join("app.db"))
+        .await
+        .expect("database");
+    let mut writer = database.connection().await.expect("writer connection");
+    writer
+        .execute_batch(
+            "CREATE TABLE concurrency (id INTEGER PRIMARY KEY) STRICT; \
+             INSERT INTO concurrency (id) VALUES (1);",
+        )
+        .await
+        .expect("initial data");
+
+    let transaction = writer
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .await
+        .expect("writer transaction");
+    transaction
+        .execute("INSERT INTO concurrency (id) VALUES (2)", ())
+        .await
+        .expect("uncommitted write");
+
+    let reader = database.connection().await.expect("reader connection");
+    let mut rows = reader
+        .query("SELECT COUNT(*) FROM concurrency", ())
+        .await
+        .expect("read during write transaction");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("count row")
+            .expect("count")
+            .get::<i64>(0)
+            .expect("count value"),
+        1,
+        "reader sees the last committed snapshot"
+    );
+    drop(rows);
+
+    transaction.commit().await.expect("commit writer");
+    let mut rows = reader
+        .query("SELECT COUNT(*) FROM concurrency", ())
+        .await
+        .expect("read committed data");
+    assert_eq!(
+        rows.next()
+            .await
+            .expect("count row")
+            .expect("count")
+            .get::<i64>(0)
+            .expect("count value"),
+        2
+    );
 }

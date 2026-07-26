@@ -64,6 +64,8 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
    with clear errors (e.g. acme mode requires domain + email).
 
 ## Crate Notes (checked July 2026)
+- Turso's embedded Rust API is beta. The exact `0.8.0-pre.1` pin is intentional;
+  do not enable experimental MVCC, multiprocess, or sync features.
 - Do NOT use `figment` (dormant) or `cargo-watch` (unmaintained) or `config`
   (overkill here). Use `toml` + serde and `bacon`.
 - `rustls-acme` is active and has an `axum-server` integration feature — use it.

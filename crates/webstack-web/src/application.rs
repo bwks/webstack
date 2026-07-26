@@ -14,7 +14,7 @@ use thiserror::Error;
 use tower_http::compression::CompressionLayer;
 use tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer};
 use webstack_auth::{
-    AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole, SurrealSessionStore,
+    AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole, TursoSessionStore,
     auth_router, bootstrap_admin, csrf_middleware, require_authenticated, require_role,
 };
 use webstack_core::{
@@ -198,12 +198,7 @@ impl ApplicationBuilder {
         validate_runtime_features(&config)?;
         observability::init(&config.observability)?;
 
-        let database = webstack_db::connect(
-            &config.database.data_dir,
-            &config.database.namespace,
-            &config.database.database,
-        )
-        .await?;
+        let database = webstack_db::connect(&config.database.path).await?;
         webstack_db::migrate(&database, Path::new("./migrations")).await?;
         bootstrap_admin(&database, &config.auth, config.environment).await?;
 
@@ -221,7 +216,7 @@ impl ApplicationBuilder {
     /// Converts the builder into a stateful Axum router with framework routes.
     fn into_router(self, config: Arc<Config>, database: Database) -> Router {
         let error_renderer = self.error_renderer.clone();
-        let store = SurrealSessionStore::new(database.clone());
+        let store = TursoSessionStore::new(database.clone());
         let session_ttl =
             time::Duration::hours(i64::try_from(config.auth.session_ttl_hours).unwrap_or(i64::MAX));
         let session_layer = SessionManagerLayer::new(store)
@@ -331,11 +326,17 @@ async fn render_application_error(
 
 /// Probes the embedded database and reports application readiness.
 async fn health(State(state): State<AppState>) -> Response {
-    match state.database.query("RETURN true;").await {
-        Ok(response) => match response.check() {
-            Ok(_) => Json(Health { status: "ok" }).into_response(),
-            Err(error) => unavailable_health(&error),
-        },
+    let probe = async {
+        let connection = state.database.connection().await?;
+        let mut rows = connection.query("SELECT 1", ()).await?;
+        rows.next()
+            .await?
+            .ok_or(turso::Error::QueryReturnedNoRows)?;
+        Ok::<(), turso::Error>(())
+    }
+    .await;
+    match probe {
+        Ok(()) => Json(Health { status: "ok" }).into_response(),
         Err(error) => unavailable_health(&error),
     }
 }
@@ -372,7 +373,7 @@ fn valid_role(role: &str) -> bool {
 /// Starts the daily expired-session cleanup task owned by the application runtime.
 fn spawn_session_cleanup(database: Database) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let store = SurrealSessionStore::new(database);
+        let store = TursoSessionStore::new(database);
         let mut interval = tokio::time::interval(std::time::Duration::from_hours(24));
         loop {
             interval.tick().await;
@@ -427,7 +428,6 @@ mod tests {
         },
         routing::{get, post},
     };
-    use surrealdb::{Surreal, engine::local::Mem};
     use tower::ServiceExt;
     use webstack_auth::{LoginPageContext, PasswordChangePageContext, bootstrap_admin};
     use webstack_core::config::{Config, Environment, TlsMode};
@@ -437,39 +437,52 @@ mod tests {
     use crate::AppError;
 
     async fn test_database() -> Database {
-        let database = Surreal::new::<Mem>(()).await.expect("in-memory database");
-        database
-            .use_ns("test")
-            .use_db("test")
+        webstack_db::connect(std::path::Path::new(":memory:"))
             .await
-            .expect("test namespace");
-        database
+            .expect("in-memory database")
     }
 
     async fn auth_database() -> Database {
         let database = test_database().await;
         database
-            .query(
+            .connection()
+            .await
+            .expect("auth connection")
+            .execute_batch(
                 r"
-                DEFINE TABLE _webstack_user SCHEMAFULL;
-                DEFINE FIELD username ON _webstack_user TYPE string;
-                DEFINE FIELD password_hash ON _webstack_user TYPE string;
-                DEFINE FIELD roles ON _webstack_user TYPE array<string>;
-                DEFINE FIELD disabled ON _webstack_user TYPE bool;
-                DEFINE FIELD created_at ON _webstack_user TYPE int;
-                DEFINE FIELD password_expires_at ON _webstack_user TYPE int;
-                DEFINE TABLE _webstack_session SCHEMAFULL;
-                DEFINE FIELD payload ON _webstack_session TYPE string;
-                DEFINE FIELD expires_at ON _webstack_session TYPE int;
+                CREATE TABLE _webstack_user (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    roles TEXT NOT NULL,
+                    disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
+                    created_at INTEGER NOT NULL,
+                    password_expires_at INTEGER NOT NULL
+                ) STRICT;
+                CREATE TABLE _webstack_session (
+                    id TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL
+                ) STRICT;
+                CREATE INDEX webstack_session_expiry ON _webstack_session (expires_at);
                 ",
             )
             .await
-            .expect("auth schema query")
-            .check()
             .expect("auth schema");
         database
     }
 
+    async fn replace_admin_roles(database: &Database) {
+        database
+            .connection()
+            .await
+            .expect("role update connection")
+            .execute(
+                "UPDATE _webstack_user SET roles = ?1 WHERE username = 'admin'",
+                (r#"["user"]"#,),
+            )
+            .await
+            .expect("role update");
+    }
     fn response_cookies(response: &axum::response::Response) -> String {
         response
             .headers()
@@ -487,15 +500,21 @@ mod tests {
             .route(
                 "/",
                 get(|State(state): State<AppState>| async move {
-                    state
+                    let connection = state
                         .database()
-                        .query("RETURN $port;")
-                        .bind(("port", state.config().server.http_port))
+                        .connection()
                         .await
-                        .expect("state database")
-                        .take::<Option<u16>>(0)
-                        .expect("port result")
+                        .expect("state database connection");
+                    let mut rows = connection
+                        .query("SELECT ?1", (i64::from(state.config().server.http_port),))
+                        .await
+                        .expect("state database");
+                    rows.next()
+                        .await
+                        .expect("port row")
                         .expect("port")
+                        .get::<i64>(0)
+                        .expect("port result")
                         .to_string()
                 }),
             )
@@ -529,29 +548,6 @@ mod tests {
                 .await
                 .expect("body"),
             "8080"
-        );
-    }
-
-    #[tokio::test]
-    async fn unavailable_database_health_is_detail_free() {
-        let router = Application::builder().into_router(
-            Arc::new(Config::default()),
-            Surreal::<surrealdb::engine::local::Db>::init(),
-        );
-        let response = router
-            .oneshot(
-                Request::get("/healthz")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("health response");
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            to_bytes(response.into_body(), usize::MAX)
-                .await
-                .expect("body"),
-            "{\"status\":\"unavailable\"}"
         );
     }
 
@@ -701,12 +697,7 @@ mod tests {
             .expect("account response");
         assert_eq!(account.status(), StatusCode::OK);
 
-        account_database
-            .query("UPDATE type::record('_webstack_user', 'admin') SET roles = ['user'];")
-            .await
-            .expect("role update")
-            .check()
-            .expect("role update check");
+        replace_admin_roles(&account_database).await;
         let forbidden = router
             .oneshot(
                 Request::get("/admin")

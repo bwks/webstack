@@ -4,7 +4,9 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AuthError {
     #[error("authentication database operation failed")]
-    Database(#[source] Box<surrealdb::Error>),
+    Database(#[source] Box<turso::Error>),
+    #[error("authentication database row could not be decoded: {0}")]
+    DatabaseDecode(String),
     #[error("password hashing failed")]
     PasswordHash,
     #[error("password worker failed")]

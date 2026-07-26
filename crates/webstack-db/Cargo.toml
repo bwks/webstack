@@ -8,9 +8,10 @@ publish.workspace = true
 
 [dependencies]
 sha2.workspace = true
-surrealdb.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
+turso.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
