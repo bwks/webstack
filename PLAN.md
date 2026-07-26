@@ -19,7 +19,7 @@ records delivery status.
 
 ### Phase 2: Embedded Database
 
-- One shared RocksDB-backed SurrealDB handle in application state
+- One shared file-backed Turso handle in application state
 - Runtime `./migrations` validation, checksums, ledger tracking, and atomic application
 - Bounded retries for optimistic write conflicts
 - Database readiness reporting through `/healthz`
@@ -28,7 +28,7 @@ records delivery status.
 ### Phase 4: Authentication and Authorisation
 
 - Local Argon2id accounts behind `axum-login` backend traits
-- SurrealDB-backed sessions with absolute lifetime checks and daily cleanup
+- Turso-backed sessions with absolute lifetime checks and daily cleanup
 - Application-owned login and password-change templates
 - Login/logout, mandatory password rotation, failed-login throttling, and CSRF
 - Authenticated and arbitrary lowercase snake-case role route guards
@@ -60,4 +60,4 @@ records delivery status.
 
 ### Phase 7: Backup to R2
 
-Add logical SurrealDB backup, R2 retention, and restore as the final phase.
+Add consistent Turso snapshot backup, R2 retention, and restore as the final phase.

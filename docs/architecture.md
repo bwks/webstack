@@ -12,7 +12,7 @@ Generated applications consume the `webstack` facade. Lifecycle-independent
 configuration and observability live in `webstack-core`; Axum composition,
 typed state, health, and graceful shutdown live in `webstack-web`;
 `webstack-db` owns the embedded connection, migration runner, and write retry
-policy; `webstack-auth` owns the swappable account backend, SurrealDB session
+policy; `webstack-auth` owns the swappable account backend, Turso session
 store, CSRF checks, and route guards. The facade re-exports their supported APIs
 so generated applications do not depend on internal crates.
 
@@ -46,7 +46,7 @@ flowchart TB
     R2["Cloudflare R2"]:::external
     WebstackConfig["./webstack.toml<br/>framework configuration"]:::external
     AppConfig["Application-owned<br/>configuration and state"]:::external
-    DataDir["Persistent data directory<br/>RocksDB + ACME cache"]:::external
+    DataDir["Persistent data directory<br/>Turso database + ACME cache"]:::external
 
     subgraph Binary["Generated application binary — one process"]
         Main["Application main<br/>composition root"]:::implemented
@@ -69,11 +69,11 @@ flowchart TB
         end
 
         State["Shared AppState<br/>Config + database"]:::implemented
-        Database["Embedded SurrealDB<br/>RocksDB backend"]:::implemented
+        Database["Embedded Turso<br/>WAL file database"]:::implemented
         Migrations["Runtime ./migrations<br/>startup history"]:::implemented
-        Sessions["SurrealDB session store"]:::implemented
+        Sessions["Turso session store"]:::implemented
         Scheduler["Backup scheduler"]:::planned
-        Export["Logical export<br/>SURQL → gzip"]:::planned
+        Export["Consistent snapshot<br/>VACUUM INTO → gzip"]:::planned
     end
 
     WebstackConfig --> Config
@@ -103,7 +103,7 @@ flowchart TB
     Migrations --> Database
     Tls --> DataDir
     Scheduler --> Export --> R2
-    Database -->|logical export only| Export
+    Database -->|consistent snapshot only| Export
     Router -.->|events and spans| Observability
     Shutdown --> PlainHttp
     Shutdown --> Scheduler
@@ -124,11 +124,12 @@ flowchart TB
 ## Runtime Invariants
 
 Each generated application is one deployable binary. It creates exactly one
-embedded SurrealDB instance, and every handler receives clones of that same
-thread-safe handle. Assets and templates compile into release binaries. The
-complete immutable migration history is deployed as `./migrations` and is
-validated before HTTP binds. Live RocksDB files are never copied for backup or
-opened by a second process.
+embedded Turso instance, and handlers open configured connections from that
+thread-safe handle. WAL mode allows concurrent readers and one active writer.
+Assets and templates compile into release binaries. The complete immutable migration
+history is deployed as `./migrations` and is validated before HTTP binds. Live
+Turso database and WAL files are never copied for backup or opened by a second
+process.
 
 Every request receives a framework-generated UUID that replaces any inbound
 `X-Request-ID`. Responses carry a strict same-origin browser policy, and HTTPS

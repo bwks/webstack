@@ -1,6 +1,6 @@
 # Webstack Demo
 
-The demo is the framework's visual reference application. It uses application-owned Askama templates, htmx partials, Tailwind CSS v4, and daisyUI while exercising local accounts, roles, CSRF, embedded SurrealDB, and the shared Items feature.
+The demo is the framework's visual reference application. It uses application-owned Askama templates, htmx partials, Tailwind CSS v4, and daisyUI while exercising local accounts, roles, CSRF, embedded Turso, and the shared Items feature.
 
 Its source mirrors newly generated applications: `src/application.rs` composes
 the process, `src/domain` owns models and persistence contexts, and `src/web`

@@ -14,7 +14,7 @@
 ## Isolation
 
 Every database integration test must create a unique temporary data directory.
-All SurrealDB handles must be dropped before cleanup. Tests involving environment
+All Turso handles must be dropped before cleanup. Tests involving environment
 variables must be serialized or run in isolated child processes.
 
 Clocks, randomness, retry delays, and external storage must be injectable where

@@ -93,11 +93,11 @@ must remain disabled until that runtime milestone is implemented.
 
 Create a migration from the application root with
 `webstack generate migration <lowercase_snake_case_name>`. Webstack validates
-the existing history and creates the next four-digit `.surql` file atomically.
+the existing history and creates the next four-digit `.sql` file atomically.
 Every deployment must include the complete `migrations/` directory; startup
 rejects a missing directory, changed applied migration, or incomplete history.
 
 The generated initial migration contains Webstack's local account and session
-schema. Later schema changes remain normal application-owned `.surql`
+schema. Later schema changes remain normal application-owned `.sql`
 migrations: generate, commit, and deploy the complete directory with the new
 binary. Migrations are intentionally not embedded in the binary.
