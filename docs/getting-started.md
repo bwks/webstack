@@ -53,7 +53,7 @@ The generated application includes safe local configuration and serves plain
 HTTP on `127.0.0.1:8080`. Its application-owned `/` route and framework-owned
 `/healthz` endpoint are composed through the Webstack facade. Stop the server
 with SIGINT or SIGTERM for graceful shutdown. Startup opens the configured
-RocksDB directory and applies the runtime `./migrations` history before the HTTP
+Turso database file and applies the runtime `./migrations` history before the HTTP
 listener binds. Run the application from a directory containing
 `webstack.toml` and the complete generated `migrations/` directory.
 Graceful draining is bounded by `server.shutdown_timeout_seconds`, which

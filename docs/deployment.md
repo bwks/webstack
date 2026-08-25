@@ -7,9 +7,7 @@ framework workspace rather than a production service.
 
 Run `just setup` once and then `just image` in a generated application. CSS is
 built before Docker receives the context. The multi-stage Dockerfile uses
-`rust:1.97.0-alpine3.24` for compilation and `alpine:3.24` at runtime. The
-runtime contains only CA certificates and the C++ runtime required by embedded
-RocksDB.
+`rust:1.97.0-alpine3.24` for compilation and `alpine:3.24` at runtime. The runtime contains only CA certificates required by the application.
 
 The process runs as UID/GID 10001. Mount production configuration at
 `/app/webstack.toml` and persistent state at `/app/data`; configure the server
@@ -17,7 +15,7 @@ to bind `0.0.0.0` and keep the database below `./data`. The immutable migration
 history is included in the image. Probe `/healthz` externally rather than
 installing diagnostic clients in the runtime image.
 
-Alpine uses musl, so CI builds the real image to cover SurrealDB, RocksDB, and
+Alpine uses musl, so CI builds the real image to cover Turso and
 rustls native dependencies. The initial CI platform is `linux/amd64`; native
 ARM64 builders can use the same Dockerfile.
 

@@ -65,7 +65,7 @@ pub(crate) fn filesystem_migrations(directory: &Path) -> Result<Vec<Migration>, 
 
 /// Checks the strict flat migration filename convention.
 fn validate_migration_filename(filename: &str) -> Result<String, DatabaseError> {
-    let Some(stem) = filename.strip_suffix(".surql") else {
+    let Some(stem) = filename.strip_suffix(".sql") else {
         return Err(DatabaseError::InvalidMigrationPath(PathBuf::from(filename)));
     };
     let bytes = stem.as_bytes();
@@ -116,7 +116,7 @@ fn transaction_keyword(source: &str) -> Option<&'static str> {
     None
 }
 
-/// Advances past one quoted `SurrealQL` token, including escaped characters.
+/// Advances past one quoted `SQL` token, including escaped characters.
 fn skip_quoted(bytes: &[u8], start: usize) -> usize {
     let quote = bytes[start];
     let mut index = start + 1;
@@ -155,15 +155,15 @@ mod tests {
     #[test]
     fn migration_names_and_transaction_tokens_are_strict() {
         assert_eq!(
-            validate_migration_filename("0001_create_users.surql").expect("valid migration"),
+            validate_migration_filename("0001_create_users.sql").expect("valid migration"),
             "0001"
         );
         for invalid in [
-            "1_create.surql",
-            "0001_Create.surql",
-            "0001_create-user.surql",
-            "nested/0001_create.surql",
-            "0001_create.sql",
+            "1_create.sql",
+            "0001_Create.sql",
+            "0001_create-user.sql",
+            "nested/0001_create.sql",
+            "0001_create.txt",
         ] {
             assert!(validate_migration_filename(invalid).is_err(), "{invalid}");
         }

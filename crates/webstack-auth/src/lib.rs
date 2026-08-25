@@ -15,7 +15,7 @@ pub use routes::{
     AuthMessage, AuthRuntime, LoginPageContext, PasswordChangePageContext, RequiredRole,
     auth_router, require_authenticated, require_role,
 };
-pub use session_store::SurrealSessionStore;
+pub use session_store::TursoSessionStore;
 pub use throttle::LoginThrottle;
 pub use user::User;
 

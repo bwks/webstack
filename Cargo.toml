@@ -52,7 +52,7 @@ rand = "0.8.5"
 rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs"] }
 rust-embed = "8.11.0"
 rustls-acme = { version = "0.15.3", default-features = false, features = ["aws-lc-rs", "axum", "tls12", "webpki-roots"] }
-surrealdb = { version = "=3.2.1", default-features = false, features = ["kv-rocksdb"] }
+turso = { version = "=0.8.0-pre.1", default-features = false }
 secrecy = { version = "0.10.3", features = ["serde"] }
 semver = "1.0.27"
 serde = { version = "1.0.228", features = ["derive"] }

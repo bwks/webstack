@@ -5,7 +5,6 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 use axum_login::{AuthnBackend, AuthzBackend};
-use surrealdb::types::SurrealValue;
 use time::{Duration, OffsetDateTime};
 use webstack_core::config::{AuthConfig, Environment};
 use webstack_db::Database;
@@ -15,11 +14,8 @@ use crate::{AuthError, user::User};
 const BOOTSTRAP_USERNAME: &str = "admin";
 const BOOTSTRAP_PASSWORD: &str = "changeme";
 const DEVELOPMENT_EXPIRY: i64 = 32_535_129_600;
-
-#[derive(SurrealValue)]
-struct Count {
-    count: usize,
-}
+const USER_COLUMNS: &str =
+    "username, password_hash, roles, disabled, created_at, password_expires_at";
 
 /// Username and password submitted to the authentication backend.
 pub struct Credentials {
@@ -46,17 +42,17 @@ impl AuthBackend {
     ///
     /// Returns an authentication database error when the query fails.
     pub async fn find_user(&self, username: &str) -> Result<Option<User>, AuthError> {
-        let username = normalize_username(username);
-        let mut response = self
-            .database
-            .query("SELECT username, password_hash, roles, disabled, created_at, password_expires_at FROM type::record('_webstack_user', $username);")
-            .bind(("username", username))
+        let connection = auth_connection(&self.database).await?;
+        let sql = format!("SELECT {USER_COLUMNS} FROM _webstack_user WHERE username = ?1");
+        let mut rows = connection
+            .query(sql, (normalize_username(username),))
             .await
-            .and_then(surrealdb::IndexedResults::check)
-            .map_err(|source| AuthError::Database(Box::new(source)))?;
-        response
-            .take::<Option<User>>(0)
-            .map_err(|source| AuthError::Database(Box::new(source)))
+            .map_err(database_error)?;
+        rows.next()
+            .await
+            .map_err(database_error)?
+            .map(|row| decode_user(&row))
+            .transpose()
     }
 
     /// Replaces a user's password and expiration timestamp.
@@ -73,18 +69,20 @@ impl AuthBackend {
         let expires = OffsetDateTime::now_utc()
             .saturating_add(Duration::days(i64::from(password_ttl_days)))
             .unix_timestamp();
-        let mut response = self
-            .database
-            .query("UPDATE type::record('_webstack_user', $username) SET password_hash = $password_hash, password_expires_at = $expires RETURN AFTER;")
-            .bind(("username", normalize_username(username)))
-            .bind(("password_hash", password_hash.to_owned()))
-            .bind(("expires", expires))
+        let connection = auth_connection(&self.database).await?;
+        let sql = format!(
+            "UPDATE _webstack_user SET password_hash = ?1, password_expires_at = ?2 \
+             WHERE username = ?3 RETURNING {USER_COLUMNS}"
+        );
+        let mut rows = connection
+            .query(sql, (password_hash, expires, normalize_username(username)))
             .await
-            .and_then(surrealdb::IndexedResults::check)
-            .map_err(|source| AuthError::Database(Box::new(source)))?;
-        response
-            .take::<Option<User>>(0)
-            .map_err(|source| AuthError::Database(Box::new(source)))?
+            .map_err(database_error)?;
+        rows.next()
+            .await
+            .map_err(database_error)?
+            .map(|row| decode_user(&row))
+            .transpose()?
             .ok_or(AuthError::MissingSchema)
     }
 }
@@ -135,15 +133,19 @@ pub async fn bootstrap_admin(
     if !config.bootstrap_admin {
         return Ok(());
     }
-    let mut response = database
-        .query("SELECT count() AS count FROM _webstack_user GROUP ALL;")
+    let connection = auth_connection(database).await?;
+    let mut rows = connection
+        .query("SELECT COUNT(*) FROM _webstack_user", ())
         .await
-        .and_then(surrealdb::IndexedResults::check)
-        .map_err(|source| AuthError::Database(Box::new(source)))?;
-    let counts: Vec<Count> = response
-        .take(0)
-        .map_err(|source| AuthError::Database(Box::new(source)))?;
-    if counts.first().is_some_and(|count| count.count > 0) {
+        .map_err(database_error)?;
+    let count = rows
+        .next()
+        .await
+        .map_err(database_error)?
+        .ok_or(AuthError::MissingSchema)?
+        .get::<i64>(0)
+        .map_err(database_error)?;
+    if count > 0 {
         return Ok(());
     }
     let password_hash = hash_password(BOOTSTRAP_PASSWORD).await?;
@@ -152,14 +154,17 @@ pub async fn bootstrap_admin(
         Environment::Development => DEVELOPMENT_EXPIRY,
         Environment::Production => now,
     };
-    database
-        .query("CREATE ONLY type::record('_webstack_user', 'admin') CONTENT { username: 'admin', password_hash: $password_hash, roles: ['admin', 'user'], disabled: false, created_at: $now, password_expires_at: $expires };")
-        .bind(("password_hash", password_hash))
-        .bind(("now", now))
-        .bind(("expires", expires))
+    let roles = serde_json::to_string(&["admin", "user"])
+        .map_err(|error| AuthError::DatabaseDecode(error.to_string()))?;
+    connection
+        .execute(
+            "INSERT INTO _webstack_user \
+             (username, password_hash, roles, disabled, created_at, password_expires_at) \
+             VALUES (?1, ?2, ?3, 0, ?4, ?5)",
+            (BOOTSTRAP_USERNAME, password_hash, roles, now, expires),
+        )
         .await
-        .and_then(surrealdb::IndexedResults::check)
-        .map_err(|source| AuthError::Database(Box::new(source)))?;
+        .map_err(database_error)?;
     tracing::warn!(
         username = BOOTSTRAP_USERNAME,
         "bootstrap administrator created with the documented temporary password"
@@ -182,6 +187,31 @@ pub async fn hash_password(password: &str) -> Result<String, AuthError> {
     })
     .await
     .map_err(AuthError::PasswordWorker)?
+}
+
+/// Opens one configured connection for an authentication operation.
+async fn auth_connection(database: &Database) -> Result<turso::Connection, AuthError> {
+    database.connection().await.map_err(database_error)
+}
+
+/// Decodes one database row into an authenticated user.
+fn decode_user(row: &turso::Row) -> Result<User, AuthError> {
+    let roles_json: String = row.get(2).map_err(database_error)?;
+    let roles = serde_json::from_str(&roles_json)
+        .map_err(|error| AuthError::DatabaseDecode(error.to_string()))?;
+    Ok(User::from_database(
+        row.get(0).map_err(database_error)?,
+        row.get(1).map_err(database_error)?,
+        roles,
+        row.get::<i64>(3).map_err(database_error)? != 0,
+        row.get(4).map_err(database_error)?,
+        row.get(5).map_err(database_error)?,
+    ))
+}
+
+/// Wraps a Turso failure in the authentication error surface.
+fn database_error(source: turso::Error) -> AuthError {
+    AuthError::Database(Box::new(source))
 }
 
 /// Normalizes usernames for lookup and stable record IDs.

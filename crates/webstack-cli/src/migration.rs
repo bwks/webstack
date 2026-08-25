@@ -24,7 +24,7 @@ pub enum MigrationError {
         source: io::Error,
     },
     /// An existing directory entry violates the migration filename convention.
-    #[error("invalid existing migration path {}; expected NNNN_lowercase_name.surql", .0.display())]
+    #[error("invalid existing migration path {}; expected NNNN_lowercase_name.sql", .0.display())]
     InvalidExistingMigration(PathBuf),
     /// A migration with this descriptive name already exists.
     #[error("migration name {name:?} already exists at {}", path.display())]
@@ -82,7 +82,7 @@ pub fn generate(root: &Path, name: &str) -> Result<PathBuf, MigrationError> {
         .checked_add(1)
         .filter(|number| *number <= MAX_MIGRATION_NUMBER)
         .ok_or(MigrationError::NumberOverflow)?;
-    let target = directory.join(format!("{number:04}_{name}.surql"));
+    let target = directory.join(format!("{number:04}_{name}.sql"));
     if target.exists() {
         return Err(MigrationError::TargetExists(target));
     }
@@ -133,7 +133,7 @@ fn validate_name(name: &str) -> Result<(), MigrationError> {
 
 /// Parses one strict four-digit migration filename.
 fn parse_filename(filename: &str) -> Option<(u16, &str)> {
-    let stem = filename.strip_suffix(".surql")?;
+    let stem = filename.strip_suffix(".sql")?;
     let bytes = stem.as_bytes();
     if bytes.len() < 6 || !bytes[..4].iter().all(u8::is_ascii_digit) || bytes[4] != b'_' {
         return None;
@@ -155,9 +155,9 @@ mod tests {
             assert!(validate_name(invalid).is_err(), "{invalid}");
         }
         assert_eq!(
-            parse_filename("0042_create_users.surql"),
+            parse_filename("0042_create_users.sql"),
             Some((42, "create_users"))
         );
-        assert_eq!(parse_filename("42_create_users.surql"), None);
+        assert_eq!(parse_filename("42_create_users.sql"), None);
     }
 }

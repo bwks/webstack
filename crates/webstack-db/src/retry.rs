@@ -4,13 +4,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use surrealdb::types::{ErrorDetails, QueryError};
-
 const RETRY_WINDOWS_MS: [(u64, u64); 3] = [(10, 50), (20, 100), (40, 200)];
 
 static JITTER_STATE: AtomicU64 = AtomicU64::new(0);
 
-/// Repeats a transaction-safe write after retryable transaction conflicts.
+/// Repeats a transaction-safe write after retryable database contention.
 ///
 /// The closure runs once initially and at most three more times. Keep external
 /// side effects outside the closure because any attempted operation may run
@@ -18,28 +16,21 @@ static JITTER_STATE: AtomicU64 = AtomicU64::new(0);
 ///
 /// # Errors
 ///
-/// Returns non-conflict errors immediately and the final conflict after the
-/// retry budget is exhausted.
-pub async fn retry_write<T, F, Fut>(operation: F) -> surrealdb::Result<T>
+/// Returns non-contention errors immediately and the final contention error
+/// after the retry budget is exhausted.
+pub async fn retry_write<T, F, Fut>(operation: F) -> turso::Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = surrealdb::Result<T>>,
+    Fut: Future<Output = turso::Result<T>>,
 {
     let delays = RETRY_WINDOWS_MS
         .map(|(minimum, maximum)| Duration::from_millis(jittered_milliseconds(minimum, maximum)));
     retry_write_with_delays(operation, &delays, |delay| tokio::time::sleep(delay)).await
 }
 
-/// Classifies the retryable conflict shape exposed by `SurrealDB` 3.2.1.
-fn is_retryable_transaction_conflict(error: &surrealdb::Error) -> bool {
-    let typed_conflict = matches!(
-        error.details(),
-        ErrorDetails::Query(Some(QueryError::TransactionConflict))
-    );
-    let compatibility_conflict = error.kind_str() == "Internal"
-        && error.message().starts_with("Transaction conflict:")
-        && error.message().ends_with("This transaction can be retried");
-    typed_conflict || compatibility_conflict
+/// Classifies Turso's transient writer-contention and snapshot-conflict errors.
+fn is_retryable_transaction_conflict(error: &turso::Error) -> bool {
+    matches!(error, turso::Error::Busy(_) | turso::Error::BusySnapshot(_))
 }
 
 /// Retries using caller-supplied deterministic delays and delay implementation.
@@ -47,10 +38,10 @@ async fn retry_write_with_delays<T, F, Fut, D, DelayFuture>(
     mut operation: F,
     delays: &[Duration],
     mut delay: D,
-) -> surrealdb::Result<T>
+) -> turso::Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = surrealdb::Result<T>>,
+    Fut: Future<Output = turso::Result<T>>,
     D: FnMut(Duration) -> DelayFuture,
     DelayFuture: Future<Output = ()>,
 {
@@ -78,26 +69,19 @@ fn jittered_milliseconds(minimum: u64, maximum: u64) -> u64 {
 mod tests {
     use std::{cell::RefCell, rc::Rc};
 
-    use surrealdb::types::{ErrorDetails, QueryError};
-
     use super::{RETRY_WINDOWS_MS, is_retryable_transaction_conflict, retry_write_with_delays};
 
     #[test]
-    fn surrealdb_conflict_compatibility_is_narrow() {
-        let typed = surrealdb::Error::query(
-            "Transaction conflict".to_owned(),
-            QueryError::TransactionConflict,
-        );
-        let internal = surrealdb::Error::internal(
-            "Transaction conflict: key. This transaction can be retried".to_owned(),
-        );
-        let unrelated = surrealdb::Error::from_details(
-            "Transaction conflict: key".to_owned(),
-            ErrorDetails::Internal,
-        );
-        assert!(is_retryable_transaction_conflict(&typed));
-        assert!(is_retryable_transaction_conflict(&internal));
-        assert!(!is_retryable_transaction_conflict(&unrelated));
+    fn turso_conflict_compatibility_is_narrow() {
+        assert!(is_retryable_transaction_conflict(&turso::Error::Busy(
+            "locked".to_owned()
+        )));
+        assert!(is_retryable_transaction_conflict(
+            &turso::Error::BusySnapshot("snapshot".to_owned())
+        ));
+        assert!(!is_retryable_transaction_conflict(&turso::Error::Error(
+            "not retryable".to_owned()
+        )));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -114,12 +98,7 @@ mod tests {
                 let attempts = Rc::clone(&attempts);
                 move || {
                     *attempts.borrow_mut() += 1;
-                    async {
-                        Err::<(), _>(surrealdb::Error::query(
-                            "Transaction conflict".to_owned(),
-                            QueryError::TransactionConflict,
-                        ))
-                    }
+                    async { Err::<(), _>(turso::Error::Busy("locked".to_owned())) }
                 }
             },
             &expected,
@@ -149,10 +128,7 @@ mod tests {
                     let attempt = *attempts.borrow();
                     async move {
                         if attempt < 3 {
-                            Err(surrealdb::Error::query(
-                                "Transaction conflict".to_owned(),
-                                QueryError::TransactionConflict,
-                            ))
+                            Err(turso::Error::Busy("locked".to_owned()))
                         } else {
                             Ok(7)
                         }
@@ -172,7 +148,7 @@ mod tests {
                 let attempts = Rc::clone(&attempts);
                 move || {
                     *attempts.borrow_mut() += 1;
-                    async { Err::<(), _>(surrealdb::Error::internal("not retryable".to_owned())) }
+                    async { Err::<(), _>(turso::Error::Error("not retryable".to_owned())) }
                 }
             },
             &[std::time::Duration::ZERO; 3],

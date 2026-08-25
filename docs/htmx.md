@@ -21,6 +21,6 @@ HTML and preserves the status. Applications can register one renderer with
 framework fallback. `AppError::internal` logs its source but exposes only
 generic public text.
 
-Wrap transaction-safe SurrealDB mutations with `retry_write`, but keep template
+Wrap transaction-safe Turso mutations with `retry_write`, but keep template
 rendering, follow-up reads, and all external side effects outside its closure.
 The closure can execute once initially and three more times after conflicts.

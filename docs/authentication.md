@@ -1,7 +1,7 @@
 # Authentication and Authorisation
 
 Webstack provides local accounts through `axum-login`, Argon2id password hashes,
-and a `tower-sessions` store backed by the application's one shared SurrealDB
+and a `tower-sessions` store backed by the application's one shared Turso
 instance. It does not provide public self-registration yet. Account management
 can be added later behind the same backend boundary without changing session or
 route APIs.

@@ -3,20 +3,21 @@ use std::{
     path::Path,
 };
 
-use surrealdb::types::SurrealValue;
+use time::OffsetDateTime;
+use turso::transaction::TransactionBehavior;
 
 use crate::{connection::Database, error::DatabaseError, validation::filesystem_migrations};
 
 const LEDGER_SETUP: &str = r"
-DEFINE TABLE IF NOT EXISTS _migrations SCHEMAFULL;
-DEFINE FIELD IF NOT EXISTS filename ON _migrations TYPE string;
-DEFINE FIELD IF NOT EXISTS checksum ON _migrations TYPE string;
-DEFINE FIELD IF NOT EXISTS applied_at ON _migrations TYPE datetime;
-DEFINE INDEX IF NOT EXISTS migration_filename ON _migrations FIELDS filename UNIQUE;
+CREATE TABLE IF NOT EXISTS _migrations (
+    filename TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at INTEGER NOT NULL
+) STRICT;
 ";
-const LEDGER_SELECT: &str = "SELECT filename, checksum FROM _migrations ORDER BY filename;";
+const LEDGER_SELECT: &str = "SELECT filename, checksum FROM _migrations ORDER BY filename";
 const LEDGER_INSERT: &str =
-    "CREATE _migrations SET filename = $filename, checksum = $checksum, applied_at = time::now();";
+    "INSERT INTO _migrations (filename, checksum, applied_at) VALUES (?1, ?2, ?3)";
 
 /// One validated filesystem migration ready for startup application.
 pub(crate) struct Migration {
@@ -26,7 +27,6 @@ pub(crate) struct Migration {
 }
 
 /// One row from Webstack's migration ledger.
-#[derive(SurrealValue)]
 struct AppliedMigration {
     filename: String,
     checksum: String,
@@ -34,7 +34,7 @@ struct AppliedMigration {
 
 /// Validates and applies an application's runtime migrations in filename order.
 ///
-/// Each migration and its ledger record commit in one client transaction.
+/// Each migration and its ledger record commit in one database transaction.
 ///
 /// # Errors
 ///
@@ -42,28 +42,44 @@ struct AppliedMigration {
 /// failure while applying or recording migrations.
 pub async fn migrate(database: &Database, directory: &Path) -> Result<(), DatabaseError> {
     let migrations = filesystem_migrations(directory)?;
-    database
-        .query(LEDGER_SETUP)
+    let connection = database
+        .connection()
         .await
-        .and_then(surrealdb::IndexedResults::check)
+        .map_err(|source| DatabaseError::Ledger {
+            operation: "connect",
+            source: Box::new(source),
+        })?;
+    connection
+        .execute_batch(LEDGER_SETUP)
+        .await
         .map_err(|source| DatabaseError::Ledger {
             operation: "initialize",
             source: Box::new(source),
         })?;
 
-    let mut response = database
-        .query(LEDGER_SELECT)
+    let mut rows = connection
+        .query(LEDGER_SELECT, ())
         .await
-        .and_then(surrealdb::IndexedResults::check)
         .map_err(|source| DatabaseError::Ledger {
             operation: "read",
             source: Box::new(source),
         })?;
-    let applied: Vec<AppliedMigration> =
-        response.take(0).map_err(|source| DatabaseError::Ledger {
-            operation: "decode",
-            source: Box::new(source),
-        })?;
+    let mut applied = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|source| DatabaseError::Ledger {
+        operation: "read",
+        source: Box::new(source),
+    })? {
+        applied.push(AppliedMigration {
+            filename: row.get(0).map_err(|source| DatabaseError::Ledger {
+                operation: "decode",
+                source: Box::new(source),
+            })?,
+            checksum: row.get(1).map_err(|source| DatabaseError::Ledger {
+                operation: "decode",
+                source: Box::new(source),
+            })?,
+        });
+    }
     verify_ledger(&migrations, &applied)?;
 
     let applied_names: BTreeSet<&str> = applied
@@ -81,35 +97,41 @@ pub async fn migrate(database: &Database, directory: &Path) -> Result<(), Databa
 
 /// Applies one migration and records it atomically.
 async fn apply_migration(database: &Database, migration: &Migration) -> Result<(), DatabaseError> {
-    let transaction =
+    let mut connection =
         database
-            .clone()
-            .begin()
+            .connection()
             .await
             .map_err(|source| DatabaseError::Migration {
                 filename: migration.filename.clone(),
                 source: Box::new(source),
             })?;
-
-    if let Err(source) = transaction
-        .query(&migration.source)
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .await
-        .and_then(surrealdb::IndexedResults::check)
-    {
-        let _cancel_result = transaction.cancel().await;
+        .map_err(|source| DatabaseError::Migration {
+            filename: migration.filename.clone(),
+            source: Box::new(source),
+        })?;
+
+    if let Err(source) = transaction.execute_batch(&migration.source).await {
+        let _rollback_result = transaction.rollback().await;
         return Err(DatabaseError::Migration {
             filename: migration.filename.clone(),
             source: Box::new(source),
         });
     }
     if let Err(source) = transaction
-        .query(LEDGER_INSERT)
-        .bind(("filename", migration.filename.clone()))
-        .bind(("checksum", migration.checksum.clone()))
+        .execute(
+            LEDGER_INSERT,
+            (
+                migration.filename.as_str(),
+                migration.checksum.as_str(),
+                OffsetDateTime::now_utc().unix_timestamp(),
+            ),
+        )
         .await
-        .and_then(surrealdb::IndexedResults::check)
     {
-        let _cancel_result = transaction.cancel().await;
+        let _rollback_result = transaction.rollback().await;
         return Err(DatabaseError::RecordMigration {
             filename: migration.filename.clone(),
             source: Box::new(source),

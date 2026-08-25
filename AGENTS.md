@@ -1,11 +1,11 @@
-# Project Plan: Rust Web App (Axum + SurrealDB embedded + htmx, single binary)
+# Project Plan: Rust Web App (Axum + Turso embedded + htmx, single binary)
 
 ## Overview
 A fully self-contained, single-binary Rust web application. Server-rendered HTML
-with htmx for reactivity. Embedded SurrealDB (RocksDB backend) accessed only by
+with htmx for reactivity. Embedded Turso uses its SQLite-compatible file format and is accessed only by
 this app, in-process. HTTPS terminated in-process with rustls (auto-ACME).
 Templates, CSS, and JS are all compiled into the binary. The only external state
-is the data directory. Periodic consistent DB exports are pushed to Cloudflare R2.
+is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare R2.
 
 ## Stack
 - **Web framework:** Axum (latest stable, 0.8+)
@@ -15,25 +15,26 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 - **CSS:** Tailwind CSS v4 + daisyUI via standalone Tailwind CLI (no Node), output
   compiled into the binary
 - **Static assets:** `rust-embed` — disk reads in debug (hot reload), embedded in release
-- **Database:** SurrealDB embedded, `surrealdb` crate with `kv-rocksdb` feature
+- **Database:** Turso embedded, pinned `turso` crate with default features disabled
 - **Auth:** `axum-login` + `tower-sessions` + `argon2` (local accounts, RBAC; no OIDC)
 - **Config:** `webstack.toml` parsed with `toml` + serde and validated with Garde
-- **Backup:** SurrealDB logical export → gzip → Cloudflare R2 via `aws-sdk-s3`
+- **Backup:** Turso consistent snapshot → gzip → Cloudflare R2 via `aws-sdk-s3`
 - **Scheduler:** `tokio-cron-scheduler` (fallback: plain `tokio::time` loop)
 - **Observability:** `tracing` + `tracing-subscriber`
 - **Dev tooling:** `just` (task runner) + `bacon` (NOT cargo-watch — it is unmaintained)
 
 ## Architecture Decisions (locked in — do not revisit unless blocked)
 
-1. **Single SurrealDB instance in app state.** Create `Surreal<Db>` once at startup,
-   store in Axum `State`. Handlers clone the handle (Arc internally, thread-safe).
-   Concurrent access within the app is expected and safe. Implement a small
-   write-retry helper for optimistic transaction conflicts (max 3 retries,
-   jittered backoff).
-2. **No second process may ever open the RocksDB data dir.** All admin/backup
-   operations go through the app or its export mechanism.
-3. **Backups are logical exports, never file copies.** RocksDB files cannot be
-   safely copied while live. Use SurrealDB export → `.surql` → gzip → R2.
+1. **Single Turso instance in app state.** Create `turso::Database` once at startup,
+   wrap it in Webstack's cloneable `Database`, and store it in Axum `State`.
+   Each operation opens a configured connection from that handle. WAL mode permits
+   concurrent readers and one active writer; retry `Busy` and `BusySnapshot`
+   failures at most 3 times with jittered backoff.
+2. **No second process may ever open the Turso database file.** All administration
+   and backup operations go through the application-owned database handle.
+3. **Backups use consistent snapshots, never live file copies.** The database and
+   WAL files cannot be copied safely while open. Use `VACUUM INTO` through the
+   running application, then gzip the closed snapshot and upload it to R2.
 4. **Everything ships in the binary.** Askama templates compile in by nature;
    CSS and htmx JS embed via `rust-embed`. Release builds MUST build Tailwind CSS
    first (enforced by `just release` ordering and a `build.rs` check that fails a
@@ -44,8 +45,8 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
    as a redirect listener. Default ports: HTTPS 8443, HTTP 8080 (no elevated
    privileges needed).
 6. **Auth is sessions, not JWT.** Server-rendered htmx app → cookie sessions via
-   tower-sessions, backed by SurrealDB (custom session store — no extra infra).
-   Passwords hashed with argon2id. Authorisation is role-based: `roles: [string]`
+   tower-sessions, backed by Turso (custom session store — no extra infra).
+   Passwords hashed with argon2id. Authorisation is role-based: `roles stored as a JSON string array`
    on the user record, enforced with axum-login's permission/role layers on
    route groups. No OIDC/SSO — but keep all auth behind axum-login's
    `AuthnBackend` trait so a different backend can be swapped in later.
@@ -63,6 +64,8 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
    with clear errors (e.g. acme mode requires domain + email).
 
 ## Crate Notes (checked July 2026)
+- Turso's embedded Rust API is beta. The exact `0.8.0-pre.1` pin is intentional;
+  do not enable experimental MVCC, multiprocess, or sync features.
 - Do NOT use `figment` (dormant) or `cargo-watch` (unmaintained) or `config`
   (overkill here). Use `toml` + serde and `bacon`.
 - `rustls-acme` is active and has an `axum-server` integration feature — use it.
@@ -119,10 +122,10 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 ├── src/
 │   ├── main.rs               # config → tracing → db → auth → router → scheduler → serve
 │   ├── config.rs             # toml load, env secret overrides, validate()
-│   ├── db.rs                 # Surreal init, migration runner, write-retry helper
+│   ├── db.rs                 # Turso init, migration runner, write-retry helper
 │   ├── auth/
-│   │   ├── mod.rs            # axum-login AuthnBackend impl over SurrealDB users
-│   │   ├── session_store.rs  # tower-sessions SessionStore impl over SurrealDB
+│   │   ├── mod.rs            # axum-login AuthnBackend impl over Turso users
+│   │   ├── session_store.rs  # tower-sessions SessionStore impl over Turso
 │   │   └── routes.rs         # login/logout handlers + templates wiring
 │   ├── assets.rs             # rust-embed Asset + GET /static/{*path} handler
 │   ├── tls.rs                # mode switch: acme (rustls-acme) | self_signed (rcgen) | disabled
@@ -133,12 +136,12 @@ is the data directory. Periodic consistent DB exports are pushed to Cloudflare R
 │   │   ├── health.rs         # GET /healthz (includes trivial DB query)
 │   │   └── ...               # feature routes
 │   ├── views/                # Askama template structs
-│   ├── backup.rs             # export -> gzip -> R2 upload, retention pruning
+│   ├── backup.rs             # snapshot -> gzip -> R2 upload, retention pruning
 │   └── middleware/
 │       ├── csrf.rs
 │       └── request_id.rs
 ├── migrations/
-│   ├── 0001_init.surql       # includes user table + roles + session table
+│   ├── 0001_init.sql       # includes user table + roles + session table
 │   └── ...                   # ordered, applied at startup, tracked in _migrations table
 └── tests/
     └── integration.rs        # temp data dir per test, full request cycle
@@ -159,7 +162,7 @@ argon2 = "0.5"
 askama = "0.14"
 rust-embed = "8"
 mime_guess = "2"
-surrealdb = { version = "2", features = ["kv-rocksdb"] }
+turso = { version = "=0.8.0-pre.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 tracing = "0.1"
@@ -191,9 +194,7 @@ acme_cache_dir = "./data/acme"   # must persist across restarts (LE rate limits)
 acme_staging = false        # true = Let's Encrypt staging endpoint
 
 [database]
-data_dir = "./data/surreal"
-namespace = "app"
-database = "app"
+path = "./data/app.db"
 
 [auth]
 session_ttl_hours = 168
@@ -238,9 +239,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   `webstack.toml`, and the complete runtime `migrations/` history.
 
 ### Phase 4: Auth (authentication + authorisation)
-- `0001_init.surql`: user table (username unique, argon2id password_hash,
-  roles array, created_at, disabled flag) + session table
-- `session_store.rs`: implement tower-sessions `SessionStore` against SurrealDB;
+- `0001_init.sql`: user table (username unique, argon2id password_hash,
+  roles JSON array, created_at, disabled flag) + session table
+- `session_store.rs`: implement tower-sessions `SessionStore` against Turso;
   expired-session cleanup piggybacks on the backup cron (or its own daily job)
 - `auth/mod.rs`: axum-login `AuthnBackend` over the user table; argon2id verify
 - Login page (Askama) + login/logout routes; failed-login rate limiting
@@ -264,8 +265,8 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
   a short CONVENTIONS.md.
 
 ### Phase 2: Database
-- `db.rs`: open embedded Surreal at `data_dir`, select ns/db
-- Migration runner: apply `migrations/*.surql` in filename order, record applied
+- `db.rs`: open the embedded Turso database at `database.path` in WAL mode
+- Migration runner: apply `migrations/*.sql` in filename order, record applied
   names in `_migrations` table, idempotent across restarts
 - Write-retry helper for optimistic conflicts
 - `/healthz` extended with a trivial DB query
@@ -286,7 +287,7 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 
 ### Phase 6: Hardening
 - tower-http compression + trace layers, request IDs
-- Graceful shutdown: SIGTERM → stop accepting, finish in-flight, close Surreal
+- Graceful shutdown: SIGTERM → stop accepting, finish in-flight, close Turso database handles
   cleanly (scheduler shutdown too)
 - Security headers middleware (HSTS when TLS active, X-Content-Type-Options,
   frame-ancestors, a sane CSP that permits inline htmx attributes)
@@ -301,13 +302,13 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Dockerfile: Alpine multi-stage build, non-root runtime, mounted data volume
 
 ### Phase 7: Backup to R2
-- `backup.rs`: SurrealDB export (Rust SDK export on the embedded instance) to a
-  temp file → gzip → upload to R2 key `{prefix}{iso8601-utc}.surql.gz`
+- `backup.rs`: run `VACUUM INTO` through the live Turso connection to create a
+  consistent closed snapshot → gzip → upload to R2 key `{prefix}{iso8601-utc}.db.gz`
 - Retention: list keys under prefix, delete oldest beyond `retention`
 - Scheduled via tokio-cron-scheduler from `backup.cron`; also an admin-role-only
   route to trigger an on-demand backup
-- Restore path: `APP_RESTORE_FROM=<r2-key-or-local-path>` env at startup imports
-  into a fresh data dir before serving; document the procedure in README
+- Restore path: `APP_RESTORE_FROM=<r2-key-or-local-path>` env at startup replaces a
+  fresh database path before Turso opens; document the procedure in README
 - **Done when:** scheduled backup lands in R2, retention pruning works,
   restore verified end-to-end against a throwaway bucket + fresh data dir.
 
@@ -326,6 +327,6 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 ## Notes for LLMs
 - Small compiling increments; run `cargo check` frequently; keep `bacon clippy` clean
 - Askama template errors are compile errors — expect them, fix them
-- Never write a script that copies the RocksDB data directory — exports only
+- Never write a script that copies the live Turso database or WAL files — snapshots only
 - Do not add cargo-watch, figment, or the config crate (see Crate Notes)
 - If a pinned version conflicts, prefer the latest compatible and note the change

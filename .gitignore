@@ -6,3 +6,5 @@
 /webstack.toml
 /graphify-out/
 /examples/**/data/
+
+manifest.toml

@@ -1,10 +1,9 @@
 use axum_login::AuthUser;
 use serde::{Deserialize, Serialize};
-use surrealdb::types::SurrealValue;
 use time::OffsetDateTime;
 
 /// One local Webstack account.
-#[derive(Clone, Debug, Deserialize, Serialize, SurrealValue)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct User {
     pub(crate) username: String,
     #[serde(skip_serializing)]
@@ -16,6 +15,25 @@ pub struct User {
 }
 
 impl User {
+    /// Builds a user from validated database fields.
+    pub(crate) fn from_database(
+        username: String,
+        password_hash: String,
+        roles: Vec<String>,
+        disabled: bool,
+        created_at: i64,
+        password_expires_at: i64,
+    ) -> Self {
+        Self {
+            username,
+            password_hash,
+            roles,
+            disabled,
+            created_at,
+            password_expires_at,
+        }
+    }
+
     /// Returns the normalized account username.
     #[must_use]
     pub fn username(&self) -> &str {

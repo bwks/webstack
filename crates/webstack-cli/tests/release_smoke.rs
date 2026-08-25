@@ -48,6 +48,20 @@ fn executable(path: &Path, name: &str) -> PathBuf {
     path.join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
+fn release_target(application: &Path) -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR").map_or_else(
+        || application.join("target"),
+        |configured| {
+            let configured = PathBuf::from(configured);
+            if configured.is_absolute() {
+                configured
+            } else {
+                application.join(configured)
+            }
+        },
+    )
+}
+
 fn request(port: u16, path: &str) -> std::io::Result<String> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -143,7 +157,10 @@ fn generated_release_runs_with_binary_config_and_migrations() {
     fs::create_dir(&deployment).expect("deployment directory");
     let deployed_binary = executable(&deployment, "phase-one-smoke");
     fs::copy(
-        executable(&application.join("target/release"), "phase-one-smoke"),
+        executable(
+            &release_target(&application).join("release"),
+            "phase-one-smoke",
+        ),
         &deployed_binary,
     )
     .expect("release binary should copy");
@@ -155,8 +172,8 @@ fn generated_release_runs_with_binary_config_and_migrations() {
     fs::write(deployment.join("webstack.toml"), config).expect("deployment configuration");
     fs::create_dir(deployment.join("migrations")).expect("deployment migrations directory");
     fs::copy(
-        application.join("migrations/0001_initialize.surql"),
-        deployment.join("migrations/0001_initialize.surql"),
+        application.join("migrations/0001_initialize.sql"),
+        deployment.join("migrations/0001_initialize.sql"),
     )
     .expect("migration should copy");
 
@@ -168,11 +185,7 @@ fn generated_release_runs_with_binary_config_and_migrations() {
     assert_eq!(deployed_files.len(), 3);
     assert!(deployed_binary.is_file());
     assert!(deployment.join("webstack.toml").is_file());
-    assert!(
-        deployment
-            .join("migrations/0001_initialize.surql")
-            .is_file()
-    );
+    assert!(deployment.join("migrations/0001_initialize.sql").is_file());
 
     let child = Command::new(&deployed_binary)
         .current_dir(&deployment)
