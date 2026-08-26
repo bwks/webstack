@@ -8,7 +8,7 @@ mod session_store;
 mod throttle;
 mod user;
 
-pub use backend::{AuthBackend, Credentials, bootstrap_admin, hash_password};
+pub use backend::{AuthBackend, Credentials, NewUser, bootstrap_admin, hash_password};
 pub use csrf::{CsrfToken, csrf_middleware};
 pub use error::AuthError;
 pub use routes::{

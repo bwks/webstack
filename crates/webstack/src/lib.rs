@@ -28,7 +28,7 @@ pub mod auth {
     //! Supported authentication API for application handlers and templates.
 
     pub use webstack_auth::{
-        ADMIN_ROLE, AuthMessage, AuthSession, CsrfToken, LoginPageContext,
+        ADMIN_ROLE, AuthMessage, AuthSession, CsrfToken, LoginPageContext, NewUser,
         PasswordChangePageContext, USER_ROLE, User,
     };
 }

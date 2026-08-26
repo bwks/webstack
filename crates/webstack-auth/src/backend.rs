@@ -14,6 +14,9 @@ use crate::{AuthError, user::User};
 const BOOTSTRAP_USERNAME: &str = "admin";
 const BOOTSTRAP_PASSWORD: &str = "changeme";
 const DEVELOPMENT_EXPIRY: i64 = 32_535_129_600;
+const MAX_USERNAME_LENGTH: usize = 64;
+const MIN_PASSWORD_LENGTH: usize = 12;
+const MAX_PASSWORD_LENGTH: usize = 128;
 const USER_COLUMNS: &str =
     "username, password_hash, roles, disabled, created_at, password_expires_at";
 
@@ -21,6 +24,13 @@ const USER_COLUMNS: &str =
 pub struct Credentials {
     pub username: String,
     pub password: String,
+}
+
+/// Validated fields used to provision one local account.
+pub struct NewUser {
+    pub username: String,
+    pub password: String,
+    pub roles: Vec<String>,
 }
 
 /// The swappable `axum-login` backend over Webstack's shared database.
@@ -53,6 +63,60 @@ impl AuthBackend {
             .map_err(database_error)?
             .map(|row| decode_user(&row))
             .transpose()
+    }
+
+    /// Lists local accounts in stable username order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an authentication database or decode error when accounts cannot be loaded.
+    pub async fn list_users(&self) -> Result<Vec<User>, AuthError> {
+        let connection = auth_connection(&self.database).await?;
+        let sql = format!("SELECT {USER_COLUMNS} FROM _webstack_user ORDER BY username");
+        let mut rows = connection.query(sql, ()).await.map_err(database_error)?;
+        let mut users = Vec::new();
+        while let Some(row) = rows.next().await.map_err(database_error)? {
+            users.push(decode_user(&row)?);
+        }
+        Ok(users)
+    }
+
+    /// Provisions one local account that must replace its temporary password.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation, duplicate-account, password-hashing, or database error.
+    pub async fn create_user(&self, input: NewUser) -> Result<User, AuthError> {
+        let username = normalize_username(&input.username);
+        if !valid_username(&username) {
+            return Err(AuthError::InvalidUsername);
+        }
+        if !(MIN_PASSWORD_LENGTH..=MAX_PASSWORD_LENGTH).contains(&input.password.chars().count()) {
+            return Err(AuthError::InvalidPassword);
+        }
+        if input.roles.is_empty() || input.roles.iter().any(|role| !valid_role(role)) {
+            return Err(AuthError::InvalidRoles);
+        }
+        if self.find_user(&username).await?.is_some() {
+            return Err(AuthError::DuplicateUser);
+        }
+        let password_hash = hash_password(&input.password).await?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let roles = serde_json::to_string(&input.roles)
+            .map_err(|error| AuthError::DatabaseDecode(error.to_string()))?;
+        let connection = auth_connection(&self.database).await?;
+        connection
+            .execute(
+                "INSERT INTO _webstack_user \
+                 (username, password_hash, roles, disabled, created_at, password_expires_at) \
+                 VALUES (?1, ?2, ?3, 0, ?4, ?4)",
+                (username.as_str(), password_hash, roles, now),
+            )
+            .await
+            .map_err(database_error)?;
+        self.find_user(&username)
+            .await?
+            .ok_or(AuthError::MissingSchema)
     }
 
     /// Replaces a user's password and expiration timestamp.
@@ -217,6 +281,30 @@ fn database_error(source: turso::Error) -> AuthError {
 /// Normalizes usernames for lookup and stable record IDs.
 fn normalize_username(username: &str) -> String {
     username.trim().to_ascii_lowercase()
+}
+
+/// Reports whether a normalized username is safe for stable account identity.
+fn valid_username(username: &str) -> bool {
+    let mut characters = username.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    username.chars().count() <= MAX_USERNAME_LENGTH
+        && first.is_ascii_lowercase()
+        && characters.all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '-' | '_')
+        })
+}
+
+/// Reports whether one role follows Webstack's stable lowercase snake-case format.
+fn valid_role(role: &str) -> bool {
+    let mut characters = role.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase())
+        && characters.all(|character| character.is_ascii_lowercase() || character == '_')
 }
 
 /// Verifies one password against a stored PHC string.

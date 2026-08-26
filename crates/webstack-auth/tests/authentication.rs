@@ -7,7 +7,9 @@ use tower_sessions::{
     ExpiredDeletion, SessionStore,
     session::{Id, Record},
 };
-use webstack_auth::{AuthBackend, Credentials, TursoSessionStore, bootstrap_admin, hash_password};
+use webstack_auth::{
+    AuthBackend, AuthError, Credentials, NewUser, TursoSessionStore, bootstrap_admin, hash_password,
+};
 use webstack_core::config::{AuthConfig, Environment};
 use webstack_db::Database;
 
@@ -122,6 +124,88 @@ async fn password_replacement_invalidates_the_old_authentication_hash() {
         axum_login::AuthUser::session_auth_hash(&updated)
     );
     assert!(updated.password_expires_at() > OffsetDateTime::now_utc());
+}
+
+#[tokio::test]
+async fn provisioned_users_are_normalized_listed_and_forced_to_change_password() {
+    let database = database().await;
+    let backend = AuthBackend::new(database);
+    let user = backend
+        .create_user(NewUser {
+            username: " Family_Member ".to_owned(),
+            password: "temporary-password".to_owned(),
+            roles: vec!["user".to_owned()],
+        })
+        .await
+        .expect("provision user");
+
+    assert_eq!(user.username(), "family_member");
+    assert!(user.has_role("user"));
+    assert!(user.password_expired());
+    assert_eq!(
+        backend
+            .list_users()
+            .await
+            .expect("list users")
+            .iter()
+            .map(webstack_auth::User::username)
+            .collect::<Vec<_>>(),
+        vec!["family_member"]
+    );
+    assert!(
+        backend
+            .authenticate(Credentials {
+                username: "family_member".to_owned(),
+                password: "temporary-password".to_owned(),
+            })
+            .await
+            .expect("authenticate provisioned user")
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn user_provisioning_rejects_invalid_and_duplicate_accounts() {
+    let database = database().await;
+    let backend = AuthBackend::new(database);
+    assert!(matches!(
+        backend
+            .create_user(NewUser {
+                username: "not valid".to_owned(),
+                password: "temporary-password".to_owned(),
+                roles: vec!["user".to_owned()],
+            })
+            .await,
+        Err(AuthError::InvalidUsername)
+    ));
+    assert!(matches!(
+        backend
+            .create_user(NewUser {
+                username: "member".to_owned(),
+                password: "short".to_owned(),
+                roles: vec!["user".to_owned()],
+            })
+            .await,
+        Err(AuthError::InvalidPassword)
+    ));
+    backend
+        .create_user(NewUser {
+            username: "member".to_owned(),
+            password: "temporary-password".to_owned(),
+            roles: vec!["user".to_owned()],
+        })
+        .await
+        .expect("first account");
+    assert!(matches!(
+        backend
+            .create_user(NewUser {
+                username: "member".to_owned(),
+                password: "another-temporary-password".to_owned(),
+                roles: vec!["user".to_owned()],
+            })
+            .await,
+        Err(AuthError::DuplicateUser)
+    ));
 }
 
 #[tokio::test]
