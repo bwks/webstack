@@ -61,3 +61,20 @@ records delivery status.
 ### Phase 7: Backup to R2
 
 Add consistent Turso snapshot backup, R2 retention, and restore as the final phase.
+
+### Schema Snapshot Generation
+
+- Add `webstack generate schema` to apply the complete migration history to an
+  isolated temporary Turso database through Webstack's migration runner.
+- Export tables, indexes, triggers, and views from `sqlite_schema` in a
+  deterministic order to an application-owned `docs/schema.sql` file.
+- Mark the generated snapshot as read-only documentation; immutable migrations
+  remain the authoritative runtime schema history.
+- Add `webstack generate schema --check` to detect a stale snapshot without
+  rewriting it.
+- Add `schema` and `check-schema` recipes to newly generated application
+  `justfile`s.
+- Cover deterministic output, altered-schema representation, stale snapshot
+  detection, and isolation from the application's runtime database in tests.
+- Keep schema generation in-process; do not introduce an external `sqlite3`
+  dependency or spawn another process from production Rust.
