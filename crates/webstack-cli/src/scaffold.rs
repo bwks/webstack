@@ -30,6 +30,8 @@ domain = ""
 acme_email = ""
 acme_cache_dir = "./data/acme"
 acme_staging = false
+# "tls_alpn" needs public port 443. "dns_cloudflare" needs CLOUDFLARE_API_TOKEN.
+acme_challenge = "tls_alpn"
 
 [database]
 path = "./data/app.db"
@@ -77,6 +79,8 @@ domain = ""
 acme_email = ""
 acme_cache_dir = "./data/acme"
 acme_staging = false
+# "tls_alpn" needs public port 443. "dns_cloudflare" needs CLOUDFLARE_API_TOKEN.
+acme_challenge = "tls_alpn"
 
 [database]
 path = "./data/app.db"

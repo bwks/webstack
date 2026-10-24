@@ -70,6 +70,7 @@ impl Config {
             environment_value("R2_ACCESS_KEY_ID")?,
             environment_value("R2_SECRET_ACCESS_KEY")?,
         );
+        self.apply_cloudflare_api_token(environment_value("CLOUDFLARE_API_TOKEN")?);
         Ok(())
     }
 
@@ -88,6 +89,13 @@ impl Config {
                 access_key_id: SecretString::from(access_key_id.unwrap_or_default()),
                 secret_access_key: SecretString::from(secret_access_key.unwrap_or_default()),
             });
+        }
+    }
+
+    /// Applies a supplied Cloudflare API token after TOML deserialization.
+    fn apply_cloudflare_api_token(&mut self, token: Option<String>) {
+        if let Some(token) = token {
+            self.tls.cloudflare_api_token = Some(SecretString::from(token));
         }
     }
 
@@ -193,6 +201,17 @@ pub enum TlsMode {
     Disabled,
 }
 
+/// How an ACME certificate authority verifies control of `tls.domain`.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AcmeChallenge {
+    /// TLS-ALPN-01 on public port 443, answered by the HTTPS listener.
+    #[default]
+    TlsAlpn,
+    /// DNS-01 through TXT records managed with the Cloudflare API.
+    DnsCloudflare,
+}
+
 #[derive(Debug, Deserialize, Validate)]
 #[serde(default, deny_unknown_fields)]
 pub struct TlsConfig {
@@ -206,6 +225,23 @@ pub struct TlsConfig {
     pub acme_cache_dir: PathBuf,
     #[garde(skip)]
     pub acme_staging: bool,
+    #[garde(skip)]
+    pub acme_challenge: AcmeChallenge,
+    #[serde(skip)]
+    #[garde(if(
+        cond = self.mode == TlsMode::Acme && self.acme_challenge == AcmeChallenge::DnsCloudflare,
+        required,
+        inner(custom(non_blank_secret))
+    ))]
+    cloudflare_api_token: Option<SecretString>,
+}
+
+impl TlsConfig {
+    /// Returns the environment-supplied Cloudflare API token when present.
+    #[must_use]
+    pub const fn cloudflare_api_token(&self) -> Option<&SecretString> {
+        self.cloudflare_api_token.as_ref()
+    }
 }
 
 impl Default for TlsConfig {
@@ -217,6 +253,8 @@ impl Default for TlsConfig {
             acme_email: None,
             acme_cache_dir: PathBuf::from("./data/acme"),
             acme_staging: false,
+            acme_challenge: AcmeChallenge::TlsAlpn,
+            cloudflare_api_token: None,
         }
     }
 }
@@ -476,7 +514,9 @@ mod tests {
     use secrecy::{ExposeSecret, SecretString};
     use tempfile::TempDir;
 
-    use super::{Config, ConfigError, Environment, LogFormat, R2Credentials, TlsMode};
+    use super::{
+        AcmeChallenge, Config, ConfigError, Environment, LogFormat, R2Credentials, TlsMode,
+    };
 
     fn write_config(directory: &Path, contents: &str) -> std::path::PathBuf {
         let path = directory.join("webstack.toml");
@@ -678,6 +718,76 @@ filter = "not a [ valid filter"
         config.tls.acme_email = Some("admin@example.com".to_owned());
         let fields = validation_fields(config.validate().expect_err("colliding TLS listeners"));
         assert!(fields.iter().any(|field| field == "server.http_port"));
+    }
+
+    #[test]
+    fn dns_cloudflare_challenge_parses_and_requires_a_redacted_token() {
+        let temp = TempDir::new().expect("temporary directory");
+        let path = write_config(
+            temp.path(),
+            r#"
+[tls]
+mode = "acme"
+domain = "app.example.com"
+acme_email = "admin@example.com"
+acme_challenge = "dns_cloudflare"
+"#,
+        );
+        let fields = validation_fields(Config::load_file(&path).expect_err("missing token"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "tls.cloudflare_api_token")
+        );
+
+        let mut config = Config::default();
+        config.tls.mode = TlsMode::Acme;
+        config.tls.domain = Some("app.example.com".to_owned());
+        config.tls.acme_email = Some("admin@example.com".to_owned());
+        config.tls.acme_challenge = AcmeChallenge::DnsCloudflare;
+        config.apply_cloudflare_api_token(Some(" ".to_owned()));
+        let fields = validation_fields(config.validate().expect_err("blank token"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "tls.cloudflare_api_token")
+        );
+
+        config.apply_cloudflare_api_token(Some("cloudflare-secret".to_owned()));
+        config.validate().expect("valid DNS-01 configuration");
+        assert_eq!(
+            config
+                .tls
+                .cloudflare_api_token()
+                .expect("token")
+                .expose_secret(),
+            "cloudflare-secret"
+        );
+        assert!(!format!("{config:?}").contains("cloudflare-secret"));
+    }
+
+    #[test]
+    fn tls_alpn_challenge_is_the_default_and_needs_no_token() {
+        let mut config = Config::default();
+        config.tls.mode = TlsMode::Acme;
+        config.tls.domain = Some("app.example.com".to_owned());
+        config.tls.acme_email = Some("admin@example.com".to_owned());
+
+        assert_eq!(config.tls.acme_challenge, AcmeChallenge::TlsAlpn);
+        config.validate().expect("valid TLS-ALPN configuration");
+    }
+
+    #[test]
+    fn cloudflare_token_in_toml_is_rejected() {
+        let temp = TempDir::new().expect("temporary directory");
+        let path = write_config(
+            temp.path(),
+            "[tls]\ncloudflare_api_token = \"must-not-be-here\"\n",
+        );
+
+        let error = Config::load_file(&path).expect_err("TOML secret rejected");
+
+        assert!(matches!(error, ConfigError::Parse { .. }));
     }
 
     #[test]
