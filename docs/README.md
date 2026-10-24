@@ -16,5 +16,4 @@ work remains in [`PLAN.md`](../PLAN.md).
 - [TLS and listeners](tls.md)
 - [Testing](testing.md)
 - [Deployment](deployment.md)
-
-Backup and restore guidance will be added with the final implementation phase.
+- [Backup and restore](backup.md)

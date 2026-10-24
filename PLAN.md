@@ -58,11 +58,15 @@ records delivery status.
 - Strict same-origin browser security headers with TLS-only HSTS
 - Optimized releases, Alpine container deployment, hardened systemd units, and CI
 
-## Next
-
 ### Phase 7: Backup to R2
 
-Add consistent Turso snapshot backup, R2 retention, and restore as the final phase.
+- `VACUUM INTO` snapshots through the live database handle, gzip-compressed and
+  uploaded to R2 under timestamped keys with retention pruning.
+- UTC cron schedule, administrator-only `POST /admin/backups`, and startup
+  restore from a local file or R2 key via `APP_RESTORE_FROM` with an integrity
+  check.
+
+## Next
 
 ### Schema Snapshot Generation
 

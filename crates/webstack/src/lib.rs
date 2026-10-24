@@ -33,6 +33,12 @@ pub mod auth {
     };
 }
 
+pub mod backup {
+    //! Supported backup and restore API.
+
+    pub use webstack_backup::{BackupError, RESTORE_ENV};
+}
+
 pub mod database {
     //! Supported embedded database API for application code.
 
