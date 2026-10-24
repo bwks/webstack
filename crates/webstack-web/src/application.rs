@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{MethodRouter, get},
+    routing::{MethodRouter, get, post},
 };
 use axum_login::AuthManagerLayerBuilder;
 use serde::Serialize;
@@ -14,9 +14,11 @@ use thiserror::Error;
 use tower_http::compression::CompressionLayer;
 use tower_sessions::{ExpiredDeletion, Expiry, SessionManagerLayer};
 use webstack_auth::{
-    AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole, TursoSessionStore,
-    auth_router, bootstrap_admin, csrf_middleware, require_authenticated, require_role,
+    ADMIN_ROLE, AuthBackend, AuthError, AuthRuntime, LoginThrottle, RequiredRole,
+    TursoSessionStore, auth_router, bootstrap_admin, csrf_middleware, require_authenticated,
+    require_role,
 };
+use webstack_backup::{BackupError, Backups, restore_if_requested, spawn_schedule};
 use webstack_core::{
     config::{Config, ConfigError, TlsMode},
     observability::{self, ObservabilityError},
@@ -33,6 +35,7 @@ use rust_embed::RustEmbed;
 
 const HEALTH_PATH: &str = "/healthz";
 const STATIC_PATH: &str = "/static";
+const BACKUP_PATH: &str = "/admin/backups";
 
 /// Entry point for composing one generated application's HTTP runtime.
 pub struct Application;
@@ -72,6 +75,7 @@ impl ApplicationBuilder {
         method_router: MethodRouter<AppState>,
     ) -> Result<Self, ApplicationError> {
         if path == HEALTH_PATH
+            || path == BACKUP_PATH
             || path == STATIC_PATH
             || path.starts_with("/static/")
             || matches!(path, "/login" | "/logout" | "/change-password")
@@ -191,30 +195,45 @@ impl ApplicationBuilder {
     ///
     /// # Errors
     ///
-    /// Returns a typed startup, TLS, or server failure. Backups fail clearly
-    /// until their implementation milestone is complete.
+    /// Returns a typed startup, restore, backup, TLS, or server failure.
     pub async fn run(self) -> Result<(), ApplicationError> {
         let config = Config::load()?;
-        validate_runtime_features(&config)?;
         observability::init(&config.observability)?;
 
+        restore_if_requested(&config).await?;
         let database = webstack_db::connect(&config.database.path).await?;
         webstack_db::migrate(&database, Path::new("./migrations")).await?;
         bootstrap_admin(&database, &config.auth, config.environment).await?;
 
+        let backups = if config.backup.enabled {
+            Some(Arc::new(Backups::from_config(&config, database.clone())?))
+        } else {
+            None
+        };
+        let schedule = backups
+            .as_ref()
+            .map(|backups| spawn_schedule(Arc::clone(backups), &config.backup.cron))
+            .transpose()?;
         let cleanup = spawn_session_cleanup(database.clone());
         let config = Arc::new(config);
-        let router = self.into_router(Arc::clone(&config), database);
+        let router = self.into_router(Arc::clone(&config), database, backups);
         let result = crate::tls::serve(&config, router, shutdown_signal())
             .await
             .map_err(ApplicationError::Tls);
-        cleanup.abort();
-        let _cleanup_result = cleanup.await;
+        for task in [Some(cleanup), schedule].into_iter().flatten() {
+            task.abort();
+            let _result = task.await;
+        }
         result
     }
 
     /// Converts the builder into a stateful Axum router with framework routes.
-    fn into_router(self, config: Arc<Config>, database: Database) -> Router {
+    fn into_router(
+        self,
+        config: Arc<Config>,
+        database: Database,
+        backups: Option<Arc<Backups>>,
+    ) -> Router {
         let error_renderer = self.error_renderer.clone();
         let store = TursoSessionStore::new(database.clone());
         let session_ttl =
@@ -232,7 +251,19 @@ impl ApplicationBuilder {
         };
         let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
         let tls_active = config.tls.mode != TlsMode::Disabled;
-        self.router
+        let mut router = self.router;
+        if let Some(backups) = backups {
+            router = router.route(
+                BACKUP_PATH,
+                post(trigger_backup)
+                    .layer(Extension(backups))
+                    .layer::<_, Infallible>(middleware::from_fn(require_role))
+                    .layer(Extension(RequiredRole::new(ADMIN_ROLE)))
+                    .layer(middleware::from_fn(require_authenticated))
+                    .layer(middleware::from_fn(csrf_middleware)),
+            );
+        }
+        router
             .route(HEALTH_PATH, get(health))
             .with_state(AppState { config, database })
             .layer(Extension(runtime))
@@ -282,6 +313,13 @@ struct Health {
     status: &'static str,
 }
 
+#[derive(Serialize)]
+struct BackupResult {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+}
+
 /// A typed application composition or runtime failure.
 #[derive(Debug, Error)]
 pub enum ApplicationError {
@@ -295,8 +333,6 @@ pub enum ApplicationError {
     ErrorRendererAlreadyRegistered,
     #[error("role {0:?} must be lowercase snake_case and begin with a letter")]
     InvalidRole(String),
-    #[error("{0} support is not implemented yet; disable it in configuration")]
-    UnsupportedFeature(&'static str),
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
@@ -307,6 +343,8 @@ pub enum ApplicationError {
     Auth(#[from] AuthError),
     #[error(transparent)]
     Tls(#[from] TlsError),
+    #[error(transparent)]
+    Backup(#[from] BackupError),
 }
 
 /// Re-renders only responses explicitly marked by [`crate::AppError`].
@@ -353,12 +391,26 @@ fn unavailable_health(error: &impl std::fmt::Display) -> Response {
         .into_response()
 }
 
-/// Rejects configured runtime features that belong to later milestones.
-fn validate_runtime_features(config: &Config) -> Result<(), ApplicationError> {
-    if config.backup.enabled {
-        return Err(ApplicationError::UnsupportedFeature("backup"));
+/// Runs one administrator-requested backup and reports the uploaded key.
+async fn trigger_backup(Extension(backups): Extension<Arc<Backups>>) -> Response {
+    match backups.run().await {
+        Ok(key) => Json(BackupResult {
+            status: "ok",
+            key: Some(key),
+        })
+        .into_response(),
+        Err(error) => {
+            tracing::error!(%error, "on-demand database backup failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(BackupResult {
+                    status: "error",
+                    key: None,
+                }),
+            )
+                .into_response()
+        }
     }
-    Ok(())
 }
 
 /// Checks an application role against the public lowercase snake-case contract.
@@ -433,7 +485,7 @@ mod tests {
     use webstack_core::config::{Config, Environment, TlsMode};
     use webstack_db::Database;
 
-    use super::{AppState, Application, ApplicationError, validate_runtime_features};
+    use super::{AppState, Application, ApplicationError};
     use crate::AppError;
 
     async fn test_database() -> Database {
@@ -519,7 +571,7 @@ mod tests {
                 }),
             )
             .expect("application route")
-            .into_router(Arc::new(Config::default()), test_database().await);
+            .into_router(Arc::new(Config::default()), test_database().await, None);
 
         let response = router
             .clone()
@@ -553,8 +605,11 @@ mod tests {
 
     #[tokio::test]
     async fn hardening_replaces_request_ids_and_applies_security_headers() {
-        let router =
-            Application::builder().into_router(Arc::new(Config::default()), test_database().await);
+        let router = Application::builder().into_router(
+            Arc::new(Config::default()),
+            test_database().await,
+            None,
+        );
         let response = router
             .oneshot(
                 Request::get("/healthz")
@@ -591,7 +646,7 @@ mod tests {
         let router = Application::builder()
             .route("/large", get(|| async { "content ".repeat(2_048) }))
             .expect("large route")
-            .into_router(Arc::new(config), test_database().await);
+            .into_router(Arc::new(config), test_database().await, None);
         let response = router
             .oneshot(
                 Request::get("/large")
@@ -637,7 +692,7 @@ mod tests {
                 .expect("role route")
                 .route("/unsafe", post(|| async { "changed" }))
                 .expect("unsafe route")
-                .into_router(Arc::new(config), database);
+                .into_router(Arc::new(config), database, None);
 
         let login_page = router
             .clone()
@@ -711,6 +766,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn backup_route_is_reserved_absent_when_disabled_and_protected_when_enabled() {
+        assert!(matches!(
+            Application::builder().route("/admin/backups", post(|| async { "mine" })),
+            Err(ApplicationError::ReservedRoute(path)) if path == "/admin/backups"
+        ));
+
+        let disabled = Application::builder()
+            .into_router(Arc::new(Config::default()), test_database().await, None)
+            .oneshot(
+                Request::post("/admin/backups")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("disabled response");
+        assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+
+        let mut config = Config::default();
+        config.backup.enabled = true;
+        config.backup.r2.account_id = "account".to_owned();
+        config.backup.r2.bucket = "bucket".to_owned();
+        config.backup.r2.set_credentials(
+            secrecy::SecretString::from("access".to_owned()),
+            secrecy::SecretString::from("secret".to_owned()),
+        );
+        let database = auth_database().await;
+        let backups = Arc::new(
+            webstack_backup::Backups::from_config(&config, database.clone()).expect("backups"),
+        );
+        let anonymous = Application::builder()
+            .into_router(Arc::new(config), database, Some(backups))
+            .oneshot(
+                Request::post("/admin/backups")
+                    .header("hx-request", "true")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("anonymous response");
+        assert_eq!(anonymous.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn tls_modes_mark_session_cookies_secure() {
         let mut config = Config::default();
         config.tls.mode = TlsMode::SelfSigned;
@@ -725,7 +823,7 @@ mod tests {
                     }),
                 )
                 .expect("auth pages")
-                .into_router(Arc::new(config), auth_database().await);
+                .into_router(Arc::new(config), auth_database().await, None);
         let response = router
             .oneshot(Request::get("/login").body(Body::empty()).expect("request"))
             .await
@@ -747,7 +845,7 @@ mod tests {
             .expect("protected route")
             .route("/unsafe", post(|| async { "changed" }))
             .expect("unsafe route")
-            .into_router(Arc::new(Config::default()), test_database().await);
+            .into_router(Arc::new(Config::default()), test_database().await, None);
         let anonymous = router
             .clone()
             .oneshot(
@@ -810,7 +908,7 @@ mod tests {
                 }),
             )
             .expect("internal route")
-            .into_router(Arc::new(Config::default()), test_database().await);
+            .into_router(Arc::new(Config::default()), test_database().await, None);
         let cases = [
             ("/bad", StatusCode::BAD_REQUEST),
             ("/forbidden", StatusCode::FORBIDDEN),
@@ -874,7 +972,7 @@ mod tests {
                 get(|| async { Err::<(), _>(AppError::not_found("Missing.")) }),
             )
             .expect("error route")
-            .into_router(Arc::new(Config::default()), test_database().await);
+            .into_router(Arc::new(Config::default()), test_database().await, None);
         let response = custom
             .oneshot(
                 Request::get("/error")
@@ -900,7 +998,7 @@ mod tests {
                 get(|| async { Err::<(), _>(AppError::conflict("Try again.")) }),
             )
             .expect("error route")
-            .into_router(Arc::new(Config::default()), test_database().await);
+            .into_router(Arc::new(Config::default()), test_database().await, None);
         let response = fallback
             .oneshot(Request::get("/error").body(Body::empty()).expect("request"))
             .await
@@ -910,15 +1008,5 @@ mod tests {
             .await
             .expect("fallback body");
         assert!(body.starts_with(b"<!doctype html>"));
-    }
-
-    #[test]
-    fn deferred_backup_fails_clearly() {
-        let mut config = Config::default();
-        config.backup.enabled = true;
-        assert!(matches!(
-            validate_runtime_features(&config),
-            Err(ApplicationError::UnsupportedFeature("backup"))
-        ));
     }
 }

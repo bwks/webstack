@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use croner::Cron;
 use garde::Validate;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -301,7 +302,7 @@ impl Default for AuthConfig {
 pub struct BackupConfig {
     #[garde(skip)]
     pub enabled: bool,
-    #[garde(if(cond = self.enabled, custom(non_blank)))]
+    #[garde(if(cond = self.enabled, custom(cron_expression)))]
     pub cron: String,
     #[garde(if(cond = self.enabled, range(min = 1)))]
     pub retention: usize,
@@ -341,6 +342,21 @@ impl R2Config {
     #[must_use]
     pub const fn credentials(&self) -> Option<&R2Credentials> {
         self.credentials.as_ref()
+    }
+
+    /// Sets R2 credentials programmatically, such as in tests.
+    ///
+    /// `webstack.toml` never carries credentials; at runtime they come only
+    /// from `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
+    pub fn set_credentials(
+        &mut self,
+        access_key_id: SecretString,
+        secret_access_key: SecretString,
+    ) {
+        self.credentials = Some(R2Credentials {
+            access_key_id,
+            secret_access_key,
+        });
     }
 }
 
@@ -474,6 +490,15 @@ fn environment_value(name: &'static str) -> Result<Option<String>, ConfigError> 
                 .map_err(|_| ConfigError::NonUnicodeEnvironment(name))
         })
         .transpose()
+}
+
+/// Validates a five- or six-field (with seconds) cron expression evaluated in UTC.
+fn cron_expression<Context>(value: &str, _context: &Context) -> garde::Result {
+    value.parse::<Cron>().map(|_| ()).map_err(|error| {
+        garde::Error::new(format!(
+            "must be a cron expression such as \"0 0 3 * * *\": {error}"
+        ))
+    })
 }
 
 /// Rejects blank configuration strings for Garde.
@@ -830,6 +855,10 @@ acme_challenge = "dns_cloudflare"
                 "missing {expected}"
             );
         }
+
+        config.backup.cron = "not a schedule".to_owned();
+        let fields = validation_fields(config.validate().expect_err("invalid cron"));
+        assert!(fields.iter().any(|field| field == "backup.cron"));
 
         config.backup.cron = "0 0 3 * * *".to_owned();
         config.backup.retention = 14;

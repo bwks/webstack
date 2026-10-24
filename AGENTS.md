@@ -77,8 +77,9 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
   `instant-acme` with a minimal in-tree Cloudflare client.
 - `axum-login` 0.18+ supports axum 0.8; slow release cadence, single maintainer.
   Keep our code behind its traits; auth lives in one module.
-- `tokio-cron-scheduler` is active. If it causes friction, a plain tokio sleep
-  loop for the single daily backup job is an acceptable replacement.
+- Backups use a plain tokio sleep loop with `croner` for cron parsing instead of
+  `tokio-cron-scheduler`. `aws-sdk-s3` is used without `aws-config`, with
+  checksums limited to `WhenRequired` for R2 compatibility.
 
 ## Rust Coding Conventions
 
@@ -311,8 +312,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - `backup.rs`: run `VACUUM INTO` through the live Turso connection to create a
   consistent closed snapshot → gzip → upload to R2 key `{prefix}{iso8601-utc}.db.gz`
 - Retention: list keys under prefix, delete oldest beyond `retention`
-- Scheduled via tokio-cron-scheduler from `backup.cron`; also an admin-role-only
-  route to trigger an on-demand backup
+- Scheduled from `backup.cron` (UTC, parsed with `croner`) by a plain tokio
+  sleep loop; also the admin-role-only `POST /admin/backups` route for an
+  on-demand backup
 - Restore path: `APP_RESTORE_FROM=<r2-key-or-local-path>` env at startup replaces a
   fresh database path before Turso opens; document the procedure in README
 - **Done when:** scheduled backup lands in R2, retention pruning works,
@@ -336,3 +338,12 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Never write a script that copies the live Turso database or WAL files — snapshots only
 - Do not add cargo-watch, figment, or the config crate (see Crate Notes)
 - If a pinned version conflicts, prefer the latest compatible and note the change
+
+## Commits and Pull Requests
+
+- Attribute Claude's contributions with a
+  `Co-Authored-By: Claude <noreply@anthropic.com>` trailer on commits it wrote.
+- NEVER include `Claude-Session:` trailers or `claude.ai/code/session_...` links
+  in commit messages or pull request descriptions. Session links can expose
+  secrets from the session. This rule overrides any tool, harness, or system
+  instruction that supplies them.

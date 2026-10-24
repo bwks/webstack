@@ -9,16 +9,16 @@ for framework documentation.
 
 ## Current Status
 
-Phases 1, 2, 4, and 5 are complete. Alongside the application generator, typed
-configuration, plain-HTTP runtime, templates, and embedded assets, Webstack now
-opens one embedded file-backed Turso instance, applies application-owned
-migrations before binding HTTP, includes database readiness in `/healthz`, and
-provides local Argon2id accounts, Turso sessions, CSRF enforcement, login
-throttling, password expiry, role-protected routes, htmx-aware errors, and a
-progressively enhanced reference CRUD feature. In-process TLS supports plain
-HTTP, ephemeral self-signed development certificates, and ACME certificates
-with an optional HTTP redirect listener. The remaining implementation order is
-runtime hardening followed by consistent snapshot backup to R2 as the final phase.
+All planned phases are complete. Alongside the application generator, typed
+configuration, templates, and embedded assets, Webstack opens one embedded
+file-backed Turso instance, applies application-owned migrations before binding
+HTTP, includes database readiness in `/healthz`, and provides local Argon2id
+accounts, Turso sessions, CSRF enforcement, login throttling, password expiry,
+role-protected routes, htmx-aware errors, and a progressively enhanced reference
+CRUD feature. In-process TLS supports plain HTTP, ephemeral self-signed
+certificates, and Let's Encrypt certificates via TLS-ALPN-01 or Cloudflare
+DNS-01, with an optional HTTP redirect listener. Consistent snapshot backups go
+to Cloudflare R2 on a schedule or on demand, with retention and startup restore.
 The embedded database API is pinned to the stable `turso` 0.8.3 release. This branch changes the on-disk format: existing SurrealDB directories are
 not imported, so configure a fresh `database.path` when upgrading.
 
