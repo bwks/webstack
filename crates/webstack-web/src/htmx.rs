@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, future::ready};
 
 use axum::{
     extract::FromRequestParts,
@@ -37,8 +37,11 @@ where
     type Rejection = Infallible;
 
     /// Extracts htmx request metadata without rejecting malformed headers.
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(Self::from_headers(&parts.headers))
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        ready(Ok(Self::from_headers(&parts.headers)))
     }
 }
 

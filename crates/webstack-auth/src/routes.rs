@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    future::ready,
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
@@ -98,14 +99,17 @@ where
     type Rejection = Infallible;
 
     /// Reads Axum's connection metadata or uses an unspecified address in tests.
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let address = parts
             .extensions
             .get::<ConnectInfo<SocketAddr>>()
             .map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |ConnectInfo(address)| {
                 address.ip()
             });
-        Ok(Self(address))
+        ready(Ok(Self(address)))
     }
 }
 

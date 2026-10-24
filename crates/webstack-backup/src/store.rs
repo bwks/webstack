@@ -157,6 +157,7 @@ pub(crate) mod tests {
     use std::{
         collections::BTreeMap,
         fmt::Write as _,
+        future::ready,
         path::Path,
         sync::{Arc, Mutex},
     };
@@ -186,39 +187,44 @@ pub(crate) mod tests {
     }
 
     impl ObjectStore for MemoryStore {
-        async fn put(&self, key: &str, path: &Path) -> Result<(), BackupError> {
-            let bytes =
-                std::fs::read(path).map_err(|error| BackupError::Storage(error.to_string()))?;
-            self.objects
-                .lock()
-                .expect("objects lock")
-                .insert(key.to_owned(), bytes);
-            Ok(())
+        fn put(&self, key: &str, path: &Path) -> impl Future<Output = Result<(), BackupError>> {
+            ready(
+                std::fs::read(path)
+                    .map_err(|error| BackupError::Storage(error.to_string()))
+                    .map(|bytes| {
+                        self.objects
+                            .lock()
+                            .expect("objects lock")
+                            .insert(key.to_owned(), bytes);
+                    }),
+            )
         }
 
-        async fn list(&self, prefix: &str) -> Result<Vec<String>, BackupError> {
-            Ok(self
+        fn list(&self, prefix: &str) -> impl Future<Output = Result<Vec<String>, BackupError>> {
+            ready(Ok(self
                 .objects
                 .lock()
                 .expect("objects lock")
                 .keys()
                 .filter(|key| key.starts_with(prefix))
                 .cloned()
-                .collect())
+                .collect()))
         }
 
-        async fn delete(&self, key: &str) -> Result<(), BackupError> {
+        fn delete(&self, key: &str) -> impl Future<Output = Result<(), BackupError>> {
             self.objects.lock().expect("objects lock").remove(key);
-            Ok(())
+            ready(Ok(()))
         }
 
-        async fn get(&self, key: &str) -> Result<Vec<u8>, BackupError> {
-            self.objects
-                .lock()
-                .expect("objects lock")
-                .get(key)
-                .cloned()
-                .ok_or_else(|| BackupError::Storage(format!("no such key {key}")))
+        fn get(&self, key: &str) -> impl Future<Output = Result<Vec<u8>, BackupError>> {
+            ready(
+                self.objects
+                    .lock()
+                    .expect("objects lock")
+                    .get(key)
+                    .cloned()
+                    .ok_or_else(|| BackupError::Storage(format!("no such key {key}"))),
+            )
         }
     }
 

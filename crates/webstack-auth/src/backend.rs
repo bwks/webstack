@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::OnceLock};
+use std::{collections::HashSet, future::ready, sync::OnceLock};
 
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -179,8 +179,11 @@ impl AuthzBackend for AuthBackend {
     type Permission = String;
 
     /// Treats assigned role names as the permissions checked by role guards.
-    async fn get_user_permissions(&self, user: &User) -> Result<HashSet<String>, AuthError> {
-        Ok(user.roles.iter().cloned().collect())
+    fn get_user_permissions(
+        &self,
+        user: &User,
+    ) -> impl Future<Output = Result<HashSet<String>, AuthError>> + Send {
+        ready(Ok(user.roles.iter().cloned().collect()))
     }
 }
 
@@ -309,7 +312,7 @@ fn valid_role(role: &str) -> bool {
 
 /// Verifies one password against a stored PHC string.
 fn verify_password(password: &str, encoded: &str) -> bool {
-    PasswordHash::new(encoded).ok().is_some_and(|hash| {
+    PasswordHash::new(encoded).is_ok_and(|hash| {
         Argon2::default()
             .verify_password(password.as_bytes(), &hash)
             .is_ok()
