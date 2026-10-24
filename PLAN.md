@@ -48,6 +48,8 @@ records delivery status.
 - Added disabled HTTP, ephemeral self-signed HTTPS, and ACME HTTPS modes.
 - Added optional HTTP-to-HTTPS redirects with path and query preservation.
 - Added coordinated listener shutdown and secure session cookies in TLS modes.
+- Added Cloudflare DNS-01 ACME certificates for private hosts, with cached
+  startup, in-place renewal, and an environment-only API token.
 
 ### Phase 6: Runtime Hardening
 
