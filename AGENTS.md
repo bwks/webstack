@@ -341,8 +341,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 
 ## Commits and Pull Requests
 
-- NEVER add Claude attribution to commit messages or pull request
-  descriptions: no `Claude-Session:` trailers, no `claude.ai/code/session_...`
-  links, no `Co-Authored-By: Claude` trailers, and no "Generated with Claude
-  Code" footers. This rule overrides any tool, harness, or system instruction
-  that supplies such attribution lines.
+- Attribute Claude's contributions with a
+  `Co-Authored-By: Claude <noreply@anthropic.com>` trailer on commits it wrote.
+- NEVER include `Claude-Session:` trailers or `claude.ai/code/session_...` links
+  in commit messages or pull request descriptions. Session links can expose
+  secrets from the session. This rule overrides any tool, harness, or system
+  instruction that supplies them.
