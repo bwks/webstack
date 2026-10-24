@@ -66,8 +66,10 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
    with clear errors (e.g. acme mode requires domain + email).
 
 ## Crate Notes (checked July 2026)
-- Turso's embedded Rust API is beta. The exact `0.8.0-pre.1` pin is intentional;
-  do not enable experimental MVCC, multiprocess, or sync features.
+- Turso is pinned to the exact stable release `0.8.3` (October 2026). Upgrade
+  deliberately and run the full suite; avoid prereleases unless blocked. Do not
+  enable experimental MVCC, multiprocess, or sync features. `VACUUM INTO` is
+  supported; in-place `VACUUM` is experimental.
 - Do NOT use `figment` (dormant) or `cargo-watch` (unmaintained) or `config`
   (overkill here). Use `toml` + serde and `bacon`.
 - `rustls-acme` is active and has an `axum-server` integration feature — use it
@@ -165,7 +167,7 @@ argon2 = "0.5"
 askama = "0.14"
 rust-embed = "8"
 mime_guess = "2"
-turso = { version = "=0.8.0-pre.1", default-features = false }
+turso = { version = "=0.8.3", default-features = false }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 tracing = "0.1"
