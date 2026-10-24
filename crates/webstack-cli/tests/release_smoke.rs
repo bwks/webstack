@@ -196,10 +196,10 @@ fn generated_release_runs_with_binary_config_and_migrations() {
     let mut child = ChildGuard::new(child);
     wait_for_server(port, &mut child.child);
 
-    assert_ok_response(
-        &request(port, "/").expect("root response"),
-        "phase-one-smoke",
-    );
+    let root = request(port, "/").expect("root response");
+    assert_ok_response(&root, "phase-one-smoke");
+    assert!(root.contains("/static/css/app.css?v="));
+    assert!(root.contains("/static/js/htmx.min.js?v="));
     assert_ok_response(
         &request(port, "/healthz").expect("health response"),
         r#"{"status":"ok"}"#,

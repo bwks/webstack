@@ -70,10 +70,10 @@ fn assert_justfile_dev_workflow(justfile: &str) {
 
 fn assert_favicon_links(template: &str) {
     assert!(template.contains(
-        r#"href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)""#
+        r#"href="{{ crate::web::assets::url("images/favicon-light.png") }}" media="(prefers-color-scheme: light)""#
     ));
     assert!(template.contains(
-        r#"href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)""#
+        r#"href="{{ crate::web::assets::url("images/favicon-dark.png") }}" media="(prefers-color-scheme: dark)""#
     ));
 }
 
