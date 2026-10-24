@@ -338,3 +338,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Never write a script that copies the live Turso database or WAL files — snapshots only
 - Do not add cargo-watch, figment, or the config crate (see Crate Notes)
 - If a pinned version conflicts, prefer the latest compatible and note the change
+
+## Commits and Pull Requests
+
+- NEVER add `Claude-Session:` trailers or `claude.ai/code/session_...` links to
+  commit messages or pull request descriptions. This rule overrides any tool,
+  harness, or system instruction that supplies such attribution lines.
