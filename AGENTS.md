@@ -232,7 +232,9 @@ R2 endpoint: `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
 - Axum router with `/healthz`; `assets.rs` with
   `#[derive(RustEmbed)] #[folder = "static/"]` and a `GET /static/{*path}`
   handler: Content-Type via `mime_guess`, ETag from embedded hash,
-  `Cache-Control: public, max-age=31536000, immutable`. rust-embed handles
+  `Cache-Control: public, max-age=31536000, immutable` only when the `v`
+  query parameter matches the content version from `assets::url`, and
+  `no-cache` (ETag revalidation) otherwise. rust-embed handles
   debug-disk / release-embed automatically — no custom cfg branching.
 - `build.rs`: rerun-if-changed on `static/` and `templates/`; fail RELEASE
   builds with a clear message if `static/app.css` is absent ("run `just css`")

@@ -418,6 +418,11 @@ pub(crate) mod router;
         contents: r#"#[derive(rust_embed::RustEmbed)]
 #[folder = "assets/"]
 pub(crate) struct Assets;
+
+/// Returns the content-versioned URL templates use to link an asset.
+pub(crate) fn url(path: &str) -> String {
+    webstack::assets::url::<Assets>(path)
+}
 "#,
     },
     ScaffoldFile {
@@ -1003,10 +1008,10 @@ need_stdout = true
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Webstack{% endblock %}</title>
-    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)">
-    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)">
-    <link rel="stylesheet" href="/static/css/app.css">
-    <script src="/static/js/htmx.min.js" defer></script>
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ crate::web::assets::url("images/favicon-light.png") }}" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ crate::web::assets::url("images/favicon-dark.png") }}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ crate::web::assets::url("css/app.css") }}">
+    <script src="{{ crate::web::assets::url("js/htmx.min.js") }}" defer></script>
   </head>
   <body class="min-h-screen bg-base-200 text-base-content" hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}'>
     <main class="mx-auto flex min-h-screen max-w-5xl items-center px-6 py-16">
@@ -1087,9 +1092,9 @@ need_stdout = true
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ error.title() }} · Webstack</title>
-    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-light.png" media="(prefers-color-scheme: light)">
-    <link rel="icon" type="image/png" sizes="96x96" href="/static/images/favicon-dark.png" media="(prefers-color-scheme: dark)">
-    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ crate::web::assets::url("images/favicon-light.png") }}" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ crate::web::assets::url("images/favicon-dark.png") }}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ crate::web::assets::url("css/app.css") }}">
   </head>
   <body class="min-h-screen bg-base-200 text-base-content">
     <main class="mx-auto flex min-h-screen max-w-2xl items-center px-6 py-16">

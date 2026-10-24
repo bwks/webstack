@@ -84,6 +84,10 @@ must remain disabled until that runtime milestone is implemented.
   read-only persistence in `queries.rs` and retried writes in `commands.rs`.
 - `src/web/` contains the central router plus feature handlers and Askama views.
 - `assets/css`, `assets/js`, and `assets/images` contain browser assets.
+  Templates link them with `{{ crate::web::assets::url("css/app.css") }}`,
+  which appends a content version (`?v=`) so browsers cache each build's files
+  for a year and fetch changed files immediately. Plain `/static/...` URLs
+  still work but are revalidated on every use.
 - `templates/` contains feature-grouped application-owned compile-time inputs,
   with shared layouts under `templates/layouts/`.
 - `migrations/` is the application-owned runtime history deployed beside the binary.
