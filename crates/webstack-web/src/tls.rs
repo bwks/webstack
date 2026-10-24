@@ -25,7 +25,12 @@ use tokio::{
     net::TcpListener,
     task::{JoinError, JoinHandle, JoinSet},
 };
-use webstack_core::config::{Config, TlsMode};
+use webstack_core::config::{AcmeChallenge, Config, TlsMode};
+
+pub use self::{cloudflare::CloudflareError, dns01::Dns01Error};
+
+mod cloudflare;
+mod dns01;
 
 const HTTP_SCHEME: &str = "http";
 const HTTPS_SCHEME: &str = "https";
@@ -69,6 +74,8 @@ pub enum TlsError {
     ListenerSetStopped,
     #[error("the ACME certificate event stream stopped unexpectedly")]
     AcmeStopped,
+    #[error("cannot obtain the ACME DNS-01 certificate")]
+    Dns01(#[source] Dns01Error),
     #[error("{task} task failed")]
     Task {
         task: &'static str,
@@ -86,6 +93,7 @@ enum PrimaryMode {
     Http,
     SelfSigned(RustlsConfig),
     Acme(AcmeRuntime),
+    Dns01(dns01::Dns01Runtime),
 }
 
 struct AcmeRuntime {
@@ -190,10 +198,14 @@ pub(crate) async fn serve(
 
 /// Creates the configured primary HTTP, self-signed, or ACME serving mode.
 async fn primary_mode(config: &Config) -> Result<PrimaryMode, TlsError> {
-    match config.tls.mode {
-        TlsMode::Disabled => Ok(PrimaryMode::Http),
-        TlsMode::SelfSigned => self_signed_mode().await.map(PrimaryMode::SelfSigned),
-        TlsMode::Acme => Ok(PrimaryMode::Acme(acme_mode(config))),
+    match (config.tls.mode, config.tls.acme_challenge) {
+        (TlsMode::Disabled, _) => Ok(PrimaryMode::Http),
+        (TlsMode::SelfSigned, _) => self_signed_mode().await.map(PrimaryMode::SelfSigned),
+        (TlsMode::Acme, AcmeChallenge::TlsAlpn) => Ok(PrimaryMode::Acme(acme_mode(config))),
+        (TlsMode::Acme, AcmeChallenge::DnsCloudflare) => dns01::prepare(config)
+            .await
+            .map(PrimaryMode::Dns01)
+            .map_err(TlsError::Dns01),
     }
 }
 
@@ -312,6 +324,20 @@ fn start_primary(
                 Ok(identity)
             });
             *acme_task = Some(tokio::spawn(poll_acme(runtime.state)));
+        }
+        PrimaryMode::Dns01(runtime) => {
+            tracing::info!(address = %identity.address, scheme = HTTPS_SCHEME, certificate = "acme-dns-01", "application server listening");
+            let server = from_tcp_rustls(listener.listener, runtime.rustls_config.clone())
+                .map_err(|source| configure_error(identity, source))?
+                .handle(handle);
+            servers.spawn(async move {
+                server
+                    .serve(service)
+                    .await
+                    .map_err(|source| serve_error(identity, source))?;
+                Ok(identity)
+            });
+            *acme_task = Some(tokio::spawn(runtime.renew_forever()));
         }
     }
     Ok(())
@@ -497,7 +523,7 @@ mod tests {
         time::sleep,
     };
     use tower::ServiceExt;
-    use webstack_core::config::{Config, TlsMode};
+    use webstack_core::config::{AcmeChallenge, Config, TlsMode};
 
     use super::{RedirectHost, RedirectState, acme_mode, redirect_to_https, serve};
 
@@ -703,6 +729,60 @@ mod tests {
         server.await.expect("server task").expect("HTTP server");
         assert!(shutdown_started.elapsed() < Duration::from_secs(3));
         assert!(request.await.expect("request task").is_err());
+    }
+
+    #[tokio::test]
+    async fn dns01_mode_serves_a_cached_certificate_without_network_access() {
+        let cache = tempdir().expect("cache directory");
+        let domain = "app.example.test";
+        let key = rcgen::KeyPair::generate().expect("key pair");
+        let certificate = rcgen::CertificateParams::new(vec![domain.to_owned()])
+            .expect("certificate params")
+            .self_signed(&key)
+            .expect("self-signed certificate");
+        let store = cache.path().join("dns-01/staging");
+        std::fs::create_dir_all(&store).expect("certificate store");
+        std::fs::write(store.join(format!("{domain}.crt.pem")), certificate.pem())
+            .expect("cached chain");
+        std::fs::write(store.join(format!("{domain}.key.pem")), key.serialize_pem())
+            .expect("cached key");
+
+        let port = unused_port();
+        let mut config = Config::default();
+        config.server.bind_addr = "127.0.0.1".parse().expect("loopback address");
+        config.server.https_port = port;
+        config.tls.mode = TlsMode::Acme;
+        config.tls.acme_challenge = AcmeChallenge::DnsCloudflare;
+        config.tls.domain = Some(domain.to_owned());
+        config.tls.acme_email = Some("admin@example.com".to_owned());
+        config.tls.acme_cache_dir = cache.path().to_owned();
+        config.tls.acme_staging = true;
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            serve(
+                &config,
+                Router::new().route("/healthz", get(|| async { "dns-01" })),
+                async move {
+                    let _result = shutdown_receiver.await;
+                },
+            )
+            .await
+        });
+
+        let client = reqwest::Client::builder()
+            .tls_certs_only([
+                reqwest::Certificate::from_pem(certificate.pem().as_bytes()).expect("root")
+            ])
+            .resolve(domain, ([127, 0, 0, 1], port).into())
+            .build()
+            .expect("HTTPS client");
+        let response =
+            wait_for_response(&client, &format!("https://{domain}:{port}/healthz")).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.expect("HTTPS body"), "dns-01");
+
+        shutdown_sender.send(()).expect("shutdown signal");
+        server.await.expect("server task").expect("DNS-01 server");
     }
 
     #[test]

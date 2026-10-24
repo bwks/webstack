@@ -41,7 +41,9 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
    release compile if `static/app.css` is missing).
 5. **TLS in-process, three modes:** `acme` (prod), `self_signed` (dev, ephemeral
    rcgen cert generated in memory at startup), `disabled` (plain HTTP on
-   `http_port`). TLS modes serve HTTPS on `https_port` and may bind `http_port`
+   `http_port`). `acme` verifies the domain with TLS-ALPN-01 through
+   `rustls-acme` by default, or with Cloudflare DNS-01 through `instant-acme`
+   when `tls.acme_challenge = "dns_cloudflare"` (for private hosts). TLS modes serve HTTPS on `https_port` and may bind `http_port`
    as a redirect listener. Default ports: HTTPS 8443, HTTP 8080 (no elevated
    privileges needed).
 6. **Auth is sessions, not JWT.** Server-rendered htmx app → cookie sessions via
@@ -57,9 +59,9 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
    htmx requests respond with `HX-Redirect` to `/login` (a plain 302 would be
    swallowed into a partial swap).
 9. **Config is boring on purpose.** One `webstack.toml`, `toml` + serde + Garde with
-   `#[serde(default)]` everywhere. Exactly three env overrides, applied after
+   `#[serde(default)]` everywhere. Exactly four env overrides, applied after
    parsing, for secrets only: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-   `R2_SECRET_ACCESS_KEY`. Configuration always loads from `./webstack.toml`.
+   `R2_SECRET_ACCESS_KEY`, and `CLOUDFLARE_API_TOKEN` (DNS-01 only). Configuration always loads from `./webstack.toml`.
    Garde validation runs at startup
    with clear errors (e.g. acme mode requires domain + email).
 
@@ -68,8 +70,9 @@ is the data directory. Periodic consistent DB snapshots are pushed to Cloudflare
   do not enable experimental MVCC, multiprocess, or sync features.
 - Do NOT use `figment` (dormant) or `cargo-watch` (unmaintained) or `config`
   (overkill here). Use `toml` + serde and `bacon`.
-- `rustls-acme` is active and has an `axum-server` integration feature — use it.
-  Fallbacks if blocked: `tokio-rustls-acme` fork, or `instant-acme` (lower level).
+- `rustls-acme` is active and has an `axum-server` integration feature — use it
+  for TLS-ALPN-01. It cannot answer DNS-01, so the Cloudflare DNS-01 mode uses
+  `instant-acme` with a minimal in-tree Cloudflare client.
 - `axum-login` 0.18+ supports axum 0.8; slow release cadence, single maintainer.
   Keep our code behind its traits; auth lives in one module.
 - `tokio-cron-scheduler` is active. If it causes friction, a plain tokio sleep
@@ -192,6 +195,7 @@ domain = "app.example.com"  # required for acme
 acme_email = "you@example.com"
 acme_cache_dir = "./data/acme"   # must persist across restarts (LE rate limits)
 acme_staging = false        # true = Let's Encrypt staging endpoint
+acme_challenge = "tls_alpn" # "tls_alpn" (public :443) | "dns_cloudflare" (env CLOUDFLARE_API_TOKEN)
 
 [database]
 path = "./data/app.db"
